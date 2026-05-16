@@ -168,6 +168,31 @@ class TemplateRenderer:
             rendered,
         )
 
+        # {{floating min max}} or {{floating min max decimals}} - random floating point number
+        def floating_replacer(m):
+            min_val = float(m.group(1))
+            max_val = float(m.group(2))
+            decimals = int(m.group(3)) if m.group(3) else 2  # Default to 2 decimal places
+            return str(round(random.uniform(min_val, max_val), decimals))
+        
+        rendered: str = re.sub(
+            r'\{\{floating (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)(?:\s+(\d+))?\}\}',
+            floating_replacer,
+            rendered,
+        )
+
+        # {{regex "pattern"}} - generate random string matching regex pattern
+        def regex_replacer(m):
+            pattern = m.group(1)
+            result = self._generate_from_regex(pattern=pattern)
+            return result
+        
+        rendered: str = re.sub(
+            r'\{\{regex "([^"]+)"\}\}',
+            regex_replacer,
+            rendered,
+        )
+
         # Parse as JSON
         try:
             return json.loads(s=rendered)
@@ -224,6 +249,157 @@ class TemplateRenderer:
         """Generate random string from vocabulary"""
         length: int = random.randint(a=min_len, b=max_len)
         return "".join(random.choice(seq=vocab) for _ in range(length))
+
+    def _generate_from_regex(
+        self,
+        pattern: str,
+    ) -> str:
+        """Generate random string matching a regex pattern
+        
+        Supports common regex patterns:
+        - \\d: digit (0-9)
+        - \\w: word character (a-z, A-Z, 0-9, _)
+        - [a-z], [A-Z], [0-9]: character classes
+        - {n}: exact repetition
+        - {n,m}: repetition range
+        - .: any character (generates alphanumeric)
+        """
+        result = []
+        i = 0
+        
+        while i < len(pattern):
+            char_to_add = None
+            char_generator = None  # Function to generate a new character
+            chars_consumed = 0
+            
+            # Handle escape sequences (including double-escaped from template)
+            if pattern[i:i+2] == '\\\\' and i + 2 < len(pattern):
+                # Double backslash from template file (e.g., \\d in template becomes \\\\d in string)
+                next_char = pattern[i + 2]
+                if next_char == 'd':
+                    # Digit
+                    char_generator = lambda: str(random.randint(0, 9))
+                    chars_consumed = 3
+                elif next_char == 'w':
+                    # Word character
+                    char_generator = lambda: random.choice('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
+                    chars_consumed = 3
+                elif next_char == 's':
+                    # Whitespace
+                    char_to_add = ' '
+                    chars_consumed = 3
+                elif next_char == '(':
+                    # Literal opening paren
+                    char_to_add = '('
+                    chars_consumed = 3
+                elif next_char == ')':
+                    # Literal closing paren
+                    char_to_add = ')'
+                    chars_consumed = 3
+                else:
+                    # Literal escaped character
+                    char_to_add = next_char
+                    chars_consumed = 3
+            elif pattern[i] == '\\' and i + 1 < len(pattern):
+                # Single backslash (for direct usage)
+                next_char = pattern[i + 1]
+                if next_char == 'd':
+                    # Digit
+                    char_generator = lambda: str(random.randint(0, 9))
+                    chars_consumed = 2
+                elif next_char == 'w':
+                    # Word character
+                    char_generator = lambda: random.choice('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
+                    chars_consumed = 2
+                elif next_char == 's':
+                    # Whitespace
+                    char_to_add = ' '
+                    chars_consumed = 2
+                else:
+                    # Literal escaped character
+                    char_to_add = next_char
+                    chars_consumed = 2
+            
+            # Handle character classes [...]
+            elif pattern[i] == '[':
+                end = pattern.find(']', i)
+                if end == -1:
+                    char_to_add = pattern[i]
+                    chars_consumed = 1
+                else:
+                    char_class = pattern[i+1:end]
+                    # Handle ranges like a-z, A-Z, 0-9
+                    chars = []
+                    j = 0
+                    while j < len(char_class):
+                        if j + 2 < len(char_class) and char_class[j + 1] == '-':
+                            # Range
+                            start_char = ord(char_class[j])
+                            end_char = ord(char_class[j + 2])
+                            chars.extend(chr(c) for c in range(start_char, end_char + 1))
+                            j += 3
+                        else:
+                            chars.append(char_class[j])
+                            j += 1
+                    
+                    if chars:
+                        # Create a generator that picks from this character class
+                        char_generator = lambda chars_list=chars: random.choice(chars_list)
+                    chars_consumed = end - i + 1
+            
+            # Handle dot (any character)
+            elif pattern[i] == '.':
+                char_generator = lambda: random.choice('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+                chars_consumed = 1
+            
+            # Skip repetition markers - they're handled below
+            elif pattern[i] == '{':
+                i += 1
+                continue
+            
+            # Literal character
+            else:
+                char_to_add = pattern[i]
+                chars_consumed = 1
+            
+            # Now check if next character is a repetition marker
+            if char_to_add is not None or char_generator is not None:
+                next_pos = i + chars_consumed
+                if next_pos < len(pattern) and pattern[next_pos] == '{':
+                    # Find the closing brace
+                    end = pattern.find('}', next_pos)
+                    if end != -1:
+                        repetition = pattern[next_pos+1:end]
+                        if ',' in repetition:
+                            # Range {n,m}
+                            parts = repetition.split(',')
+                            min_rep = int(parts[0]) if parts[0] else 0
+                            max_rep = int(parts[1]) if parts[1] else min_rep + 10
+                            count = random.randint(min_rep, max_rep)
+                        else:
+                            # Exact {n}
+                            count = int(repetition)
+                        
+                        # Generate multiple characters
+                        if char_generator:
+                            # Generate a new random character for each repetition
+                            result.append(''.join(char_generator() for _ in range(count)))
+                        else:
+                            # Repeat the literal character
+                            result.append(char_to_add * count)
+                        i = end + 1
+                        continue
+                
+                # No repetition, just add the character
+                if char_generator:
+                    result.append(char_generator())
+                else:
+                    result.append(char_to_add)
+                i += chars_consumed
+            else:
+                i += 1
+        
+        return ''.join(result)
 
 
 def infer_avro_schema(

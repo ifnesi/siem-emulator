@@ -252,11 +252,64 @@ Templates use JR-style functions:
 ### Supported Functions
 
 - `{{now}}` - Current UTC timestamp
+- `{{unix_time_stamp N}}` - Unix timestamp N seconds ago
 - `{{ip "CIDR"}}` - Random IP from CIDR range
+- `{{ip_known_port}}` - Random well-known port (20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8080, 8443)
+- `{{ip_known_protocol}}` - Random protocol (HTTP, HTTPS, FTP, SSH, SMTP, DNS, TELNET, IMAP, POP3, SMB, MySQL, PostgreSQL, RDP)
 - `{{randoms "a|b|c"}}` - Random choice from pipe-separated options
 - `{{integer min max}}` - Random integer in range
+- `{{floating min max [decimals]}}` - Random floating-point number (default 2 decimal places) 🆕
 - `{{random_string min max}}` - Random alphanumeric string
 - `{{random_string_vocabulary min max "chars"}}` - Random string from character set
+- `{{random_v_from_list "list"}}` - Random value from list (simplified to IP generation)
+- `{{counter "name" start step}}` - Counter value (simplified to random for now)
+- `{{regex "pattern"}}` - Random string matching regex pattern 🎉
+
+### Floating-Point Numbers
+
+The `{{floating min max [decimals]}}` function generates random floating-point numbers with configurable decimal places (default: 2). Perfect for metrics, measurements, and percentages.
+
+**Examples:**
+```json
+{
+  "temperature": {{floating 15 35}},           // 23.45 (default 2 decimals)
+  "cpu_usage": {{floating 0 100}},             // 78.92 (default 2 decimals)
+  "disk_io": {{floating 0.5 10.5 1}},          // 7.8 (1 decimal)
+  "response_time": {{floating 0.1 5.9 3}},     // 2.347 (3 decimals)
+  "precision_value": {{floating 0 1 4}},       // 0.1234 (4 decimals)
+  "percentage": {{floating 0 100 0}}           // 78 (0 decimals - whole number)
+}
+```
+
+### Regex Pattern Support
+
+The `{{regex "pattern"}}` function generates random strings matching regex patterns. Perfect for creating realistic formatted data like SSNs, phone numbers, license plates, etc.
+
+**Supported regex features:**
+- `\d` - Random digit (0-9)
+- `\w` - Random word character (a-z, A-Z, 0-9, _)
+- `\s` - Whitespace
+- `[a-z]`, `[A-Z]`, `[0-9]` - Character classes with ranges
+- `{n}` - Exact repetition (e.g., `\d{3}` = 3 digits)
+- `{n,m}` - Variable repetition (e.g., `[a-z]{5,10}` = 5-10 lowercase letters)
+- `.` - Any alphanumeric character
+- `\(`, `\)` - Literal parentheses (and other escaped characters)
+
+**Examples:**
+```json
+{
+  "ssn": "{{regex \"\\d{3}-\\d{2}-\\d{4}\"}}",           // "123-45-6789"
+  "phone": "{{regex \"\\(\\d{3}\\) \\d{3}-\\d{4}\"}}",  // "(555) 123-4567"
+  "zip_code": "{{regex \"\\d{5}\"}}",                    // "90210"
+  "license_plate": "{{regex \"[A-Z]{3}-\\d{4}\"}}",     // "ABC-1234"
+  "hex_color": "{{regex \"#[0-9A-F]{6}\"}}",            // "#FF5733"
+  "username": "{{regex \"[a-z]{5,10}\"}}",              // "johndoe" (5-10 chars)
+  "product_code": "{{regex \"[A-Z]{2}\\d{3}[A-Z]\"}}",  // "AB123C"
+  "mac_address": "{{regex \"[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}\"}}"  // "A1:B2:C3:D4:E5:F6"
+}
+```
+
+**Note:** In template files, use double backslashes (`\\d`) for regex escape sequences. The system handles both single and double-escaped patterns automatically.
 
 ## Creating Custom Templates
 
