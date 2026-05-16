@@ -11,6 +11,7 @@ import time
 import random
 import argparse
 
+from datetime import datetime, timezone
 from typing import Dict, Any
 from pathlib import Path
 from datetime import datetime
@@ -83,7 +84,7 @@ class TemplateRenderer:
         # {{now}} - current timestamp
         rendered: str = re.sub(
             r"\{\{now\}\}",
-            lambda m: datetime.utcnow().isoformat() + "Z",
+            lambda m: datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             rendered,
         )
 
