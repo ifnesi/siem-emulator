@@ -174,7 +174,7 @@ source .venv/bin/activate
 python siem_producer.py TEMPLATE [OPTIONS]
 
 Required Arguments:
-  TEMPLATE              Template name (without .tpl extension)
+  TEMPLATE              Template name (without .j2 extension)
   -t, --topic TOPIC     Kafka topic name (not required with --dry-run)
 
 Optional Arguments:
@@ -238,44 +238,51 @@ Perfect for:
 
 ## Template Syntax
 
-```json
+Templates are [Jinja2](https://jinja.palletsprojects.com/) files (`.j2`) that render to JSON. Two conventions:
+
+- **String fields** use the built-in `tojson` filter — it provides the JSON quotes and escapes special characters: `{{ helper(...) | tojson }}`
+- **Numeric fields** render the raw value: `{{ helper(...) }}`
+
+```jinja
 {
-  "ts": "{{now}}",
-  "src_ip": "{{ip \"10.10.0.0/16\"}}",
-  "query": "{{randoms \"opt1|opt2|opt3\"}}",
-  "latency_ms": {{integer 1 40}}
+  "ts":         {{ now() | tojson }},
+  "src_ip":     {{ ip("10.10.0.0/16") | tojson }},
+  "query":     {{ randoms("opt1|opt2|opt3") | tojson }},
+  "latency_ms": {{ integer(1, 40) }}
 }
 ```
 
 ### Supported Functions
 
-- `{{now}}` - Current UTC timestamp
-- `{{unix_time_stamp N}}` - Unix timestamp N seconds ago
-- `{{ip "CIDR"}}` - Random IP from CIDR range
-- `{{ip_known_port}}` - Random well-known port (20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8080, 8443)
-- `{{ip_known_protocol}}` - Random protocol (HTTP, HTTPS, FTP, SSH, SMTP, DNS, TELNET, IMAP, POP3, SMB, MySQL, PostgreSQL, RDP)
-- `{{randoms "a|b|c"}}` - Random choice from pipe-separated options
-- `{{integer min max}}` - Random integer in range (accepts negative bounds)
-- `{{floating min max [decimals]}}` - Random floating-point number, accepts negatives (default 2 decimal places) 🆕
-- `{{random_string min max}}` - Random alphanumeric string
-- `{{random_string_vocabulary min max "chars"}}` - Random string from character set
-- `{{counter "name" start step}}` - Monotonic counter per name (start, start+step, start+2*step, ...)
-- `{{regex "pattern"}}` - Random string matching regex pattern 🎉
+- `now()` - Current UTC timestamp (string)
+- `unix_time_stamp(N)` - Unix timestamp in **milliseconds**, randomly chosen between now and N seconds ago (long)
+- `ip("CIDR")` - Random IP from CIDR range (string)
+- `ip_known_port()` - Random well-known port (20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8080, 8443)
+- `ip_known_protocol()` - Random protocol (HTTP, HTTPS, FTP, SSH, SMTP, DNS, TELNET, IMAP, POP3, SMB, MySQL, PostgreSQL, RDP)
+- `randoms("a|b|c")` - Random choice from pipe-separated options (string). Repeat options to bias the distribution: `"info|info|info|warning"`. Cast to a number with `| int` when emitting into a numeric field (e.g. `randoms("80|443|22") | int`).
+- `integer(min, max)` - Random integer in range (accepts negative bounds)
+- `floating(min, max, decimals=2)` - Random floating-point number, accepts negatives
+- `random_string(min, max)` - Random alphanumeric string of length in `[min, max]`
+- `random_string_vocabulary(min, max, "chars")` - Random string of length in `[min, max]` drawn from a character set
+- `counter("name", start, step)` - Monotonic counter per name (start, start+step, start+2*step, ...)
+- `regex("pattern")` - Random string matching regex pattern
+
+Since templates are full Jinja2, `{% if %}` / `{% for %}` / nested expressions are all available if you need conditional or repeating fields.
 
 ### Floating-Point Numbers
 
-The `{{floating min max [decimals]}}` function generates random floating-point numbers with configurable decimal places (default: 2). Perfect for metrics, measurements, and percentages.
+`floating(min, max, decimals=2)` generates random floating-point numbers with configurable decimal places. Perfect for metrics, measurements, and percentages.
 
 **Examples:**
-```json
+```jinja
 {
-  "temperature": {{floating 15 35}},           // 23.45 (default 2 decimals)
-  "cpu_usage": {{floating 0 100}},             // 78.92 (default 2 decimals)
-  "delta": {{floating -1.5 1.5 2}},            // -0.42 (negative bounds allowed)
-  "disk_io": {{floating 0.5 10.5 1}},          // 7.8 (1 decimal)
-  "response_time": {{floating 0.1 5.9 3}},     // 2.347 (3 decimals)
-  "precision_value": {{floating 0 1 4}},       // 0.1234 (4 decimals)
-  "percentage": {{floating 0 100 0}}           // 78.0 (0 decimals — still a float; use {{integer}} for an int)
+  "temperature":     {{ floating(15, 35) }},                  // 23.45 (default 2 decimals)
+  "cpu_usage":       {{ floating(0, 100) }},                  // 78.92 (default 2 decimals)
+  "delta":           {{ floating(-1.5, 1.5, decimals=2) }},   // -0.42 (negative bounds allowed)
+  "disk_io":         {{ floating(0.5, 10.5, decimals=1) }},   // 7.8 (1 decimal)
+  "response_time":   {{ floating(0.1, 5.9, decimals=3) }},    // 2.347 (3 decimals)
+  "precision_value": {{ floating(0, 1, decimals=4) }},        // 0.1234 (4 decimals)
+  "percentage":      {{ floating(0, 100, decimals=0) }}       // 78.0 (still a float; use integer() for an int)
 }
 ```
 
@@ -293,44 +300,91 @@ The `{{regex "pattern"}}` function generates random strings matching regex patte
 - `\(`, `\)`, `\.` - literal escapes
 
 **Examples:**
-```json
+```jinja
 {
-  "ssn": "{{regex \"\\d{3}-\\d{2}-\\d{4}\"}}",           // "123-45-6789"
-  "phone": "{{regex \"\\(\\d{3}\\) \\d{3}-\\d{4}\"}}",  // "(555) 123-4567"
-  "zip_code": "{{regex \"\\d{5}\"}}",                    // "90210"
-  "license_plate": "{{regex \"[A-Z]{3}-\\d{4}\"}}",     // "ABC-1234"
-  "hex_color": "{{regex \"#[0-9A-F]{6}\"}}",            // "#FF5733"
-  "username": "{{regex \"[a-z]{5,10}\"}}",              // "johndoe" (5-10 chars)
-  "product_code": "{{regex \"[A-Z]{2}\\d{3}[A-Z]\"}}",  // "AB123C"
-  "mac_address": "{{regex \"[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}\"}}"  // "A1:B2:C3:D4:E5:F6"
+  "ssn":           {{ regex("\\d{3}-\\d{2}-\\d{4}") | tojson }},                                   // "123-45-6789"
+  "phone":         {{ regex("\\(\\d{3}\\) \\d{3}-\\d{4}") | tojson }},                             // "(555) 123-4567"
+  "zip_code":      {{ regex("\\d{5}") | tojson }},                                                  // "90210"
+  "license_plate": {{ regex("[A-Z]{3}-\\d{4}") | tojson }},                                         // "ABC-1234"
+  "hex_color":     {{ regex("#[0-9A-F]{6}") | tojson }},                                            // "#FF5733"
+  "username":      {{ regex("[a-z]{5,10}") | tojson }},                                             // "johndoe" (5-10 chars)
+  "product_code":  {{ regex("[A-Z]{2}\\d{3}[A-Z]") | tojson }},                                    // "AB123C"
+  "mac_address":   {{ regex("[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}") | tojson }}  // "A1:B2:C3:D4:E5:F6"
 }
 ```
 
-**Note:** In template files, use double backslashes (`\\d`) for regex escape sequences. The system handles both single and double-escaped patterns automatically.
+**Note:** Backslashes inside Jinja string literals follow Python rules, so write `"\\d"` for a literal `\d`. The generator also accepts the older quadruple-backslash form (`"\\\\d"`) for backward compatibility.
 
 ## Creating Custom Templates
 
-1. Create a new `.tpl` file in `templates/` directory
-2. Use the template syntax above
-3. Run the producer with your template name
+1. Create a new `.j2` file in `templates/`.
+2. Write the template using the Jinja2 conventions described above (`| tojson` for strings, bare `{{ }}` for numbers).
+3. Run the producer with the file's basename — e.g. `templates/my_log.j2` → `python siem_producer.py my_log`.
 
-Example (`templates/my_log.tpl`):
-```json
+### Worked example
+
+A richer template that exercises every helper. Save as `templates/auth_event.j2`:
+
+```jinja
 {
-  "timestamp": "{{now}}",
-  "severity": "{{randoms \"low|medium|high|critical\"}}",
-  "source_ip": "{{ip \"192.168.0.0/16\"}}",
-  "message": "{{random_string 10 50}}"
+  "timestamp":  {{ now() | tojson }},
+  "event_id":   {{ regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") | tojson }},
+  "sequence":   {{ counter("auth", 1, 1) }},
+  "occurred_at_ms": {{ unix_time_stamp(60) }},
+  "user":       {{ randoms("alice|bob|carol|dave|root") | tojson }},
+  "action":     {{ randoms("login|login|login|logout|password_change|failed_login") | tojson }},
+  "source": {
+    "ip":      {{ ip("10.0.0.0/16") | tojson }},
+    "port":    {{ integer(1024, 65535) }},
+    "country": {{ randoms("US|US|GB|DE|FR|JP|BR") | tojson }}
+  },
+  "target_port": {{ randoms("22|443|3389|5432") | int }},
+  "latency_ms":  {{ floating(0.5, 250.0, decimals=2) }},
+  "session_id":  {{ random_string_vocabulary(16, 24, "0123456789ABCDEF") | tojson }}
 }
 ```
 
-Run it:
+Preview it, then produce to Kafka:
+
 ```bash
 source .venv/bin/activate
-python siem_producer.py my_log -t my_topic
+python siem_producer.py auth_event --dry-run -n 3
+python siem_producer.py auth_event -t auth_events -n 100
 ```
 
-The Avro schema will be automatically inferred and registered!
+The Avro schema is inferred from a few rendered samples and registered automatically.
+
+### Common patterns
+
+- **String values** — `{{ helper(...) | tojson }}`. `tojson` adds the surrounding quotes and escapes anything that needs escaping (backslashes, control chars, embedded quotes). Don't add your own `"..."` around the expression.
+- **Numeric values** — `{{ helper(...) }}`. No quotes, no filter; the bare value parses as a JSON number.
+- **`randoms()` producing a number** — `{{ randoms("80|443|22") | int }}`. `randoms` always returns a string; `| int` (or `| float`) casts so it renders as a JSON number.
+- **Nested objects / arrays** — write the JSON structure literally; only the expressions inside `{{ ... }}` are dynamic.
+- **Correlated fields** — full Jinja2 is available, so use `{% set %}` and `{% if %}` to derive one field from another:
+
+  ```jinja
+  {% set action = randoms("allow|allow|deny") %}
+  {
+    "action":   {{ action | tojson }},
+    "severity": {{ ("info" if action == "allow" else "warning") | tojson }}
+  }
+  ```
+
+### How fields map to Avro types
+
+Schema inference walks the rendered Python dict and maps each value:
+
+| Python value                          | Avro type                |
+| ------------------------------------- | ------------------------ |
+| `str`                                 | `string`                 |
+| `int` within ±2,147,483,647           | `int`                    |
+| `int` outside that range (e.g. ms epoch from `unix_time_stamp`) | `long` |
+| `float`                               | `double`                 |
+| `bool`                                | `boolean`                |
+| `dict`                                | nested `record`          |
+| `list`                                | `array`                  |
+
+If a field must be numeric, render it bare (no `tojson`). If it must be a `long`, use a value over the 32-bit range — `unix_time_stamp()` returns ms epoch and is automatically promoted.
 
 ## Configuration
 
@@ -407,7 +461,7 @@ docker compose logs broker  # Check broker logs
 
 **Template not found**
 - Ensure template file exists in `templates/` directory
-- Use template name without `.tpl` extension
+- Use template name without `.j2` extension
 
 ## Stopping
 
@@ -432,11 +486,11 @@ docker compose down -v
 │   ├── config.properties      # Kafka connection config
 │   └── registry.properties    # Schema Registry config
 └── templates/                 # SIEM data templates
-    ├── dns_log.tpl
-    ├── siem_log.tpl
-    ├── net_device.tpl
-    ├── syslog_log.tpl
-    └── pcap_data.tpl
+    ├── dns_log.j2
+    ├── siem_log.j2
+    ├── net_device.j2
+    ├── syslog_log.j2
+    └── pcap_data.j2
 ```
 
 ## Resources

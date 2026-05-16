@@ -4,7 +4,6 @@ SIEM Data Producer for Kafka with Avro Serialization
 Produces data from templates to Kafka topics with automatic Avro schema inference
 """
 
-import re
 import sys
 import json
 import time
@@ -18,6 +17,7 @@ from datetime import datetime, timezone
 from concurrent.futures import Future
 
 import exrex
+import jinja2
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka.serialization import SerializationContext, MessageField
@@ -25,17 +25,8 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 
 
-def _json_escape(value: str) -> str:
-    """Escape a string so it is safe to splice inside a JSON string literal.
-
-    `json.dumps` adds surrounding quotes; strip them to leave only the escaped
-    content, since the substitution sits between the user's own `"..."`.
-    """
-    return json.dumps(value)[1:-1]
-
-
 class TemplateRenderer:
-    """Renders templates with random data"""
+    """Renders Jinja2 templates with random-data helpers registered as globals."""
 
     # Common ports and protocols
     KNOWN_PORTS: list[int] = [
@@ -74,116 +65,48 @@ class TemplateRenderer:
 
     def __init__(self) -> None:
         self.counters: dict[str, int] = {}
-
-    def render(self, template: str) -> Dict[str, Any]:
-        """Render a template string to a dictionary."""
-        rendered = template
-
-        # {{now}} - current timestamp
-        rendered = re.sub(
-            r"\{\{now\}\}",
-            lambda m: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            rendered,
+        self.env = jinja2.Environment(
+            autoescape=False,
+            undefined=jinja2.StrictUndefined,
+            keep_trailing_newline=False,
         )
+        self.env.globals.update({
+            "now": lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "unix_time_stamp": lambda max_ago: int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000),
+            "ip": self._random_ip,
+            "ip_known_port": lambda: random.choice(self.KNOWN_PORTS),
+            "ip_known_protocol": lambda: random.choice(self.KNOWN_PROTOCOLS),
+            "randoms": lambda options: random.choice(options.split("|")),
+            "integer": random.randint,
+            "random_string": self._random_string,
+            "random_string_vocabulary": self._random_string_vocab,
+            "counter": self._counter,
+            "floating": self._floating,
+            "regex": self._generate_from_regex,
+        })
 
-        # {{unix_time_stamp seconds}} - Unix timestamp (seconds ago)
-        rendered = re.sub(
-            r"\{\{unix_time_stamp (\d+)\}\}",
-            lambda m: str(int(time.time()) - random.randint(0, int(m.group(1)))),
-            rendered,
-        )
+    def compile(self, source: str) -> jinja2.Template:
+        """Compile a template source string once; reuse across renders."""
+        return self.env.from_string(source)
 
-        # {{ip_known_port}} - Random known port
-        rendered = re.sub(
-            r"\{\{ip_known_port\}\}",
-            lambda m: str(random.choice(self.KNOWN_PORTS)),
-            rendered,
-        )
-
-        # {{ip_known_protocol}} - Random known protocol
-        rendered = re.sub(
-            r"\{\{ip_known_protocol\}\}",
-            lambda m: random.choice(self.KNOWN_PROTOCOLS),
-            rendered,
-        )
-
-        # {{ip "CIDR"}} - random IP from CIDR
-        rendered = re.sub(
-            r'\{\{ip "([^"]+)"\}\}',
-            lambda m: self._random_ip(cidr=m.group(1)),
-            rendered,
-        )
-
-        # {{randoms "opt1|opt2|opt3"}} - random choice
-        rendered = re.sub(
-            r'\{\{randoms "([^"]+)"\}\}',
-            lambda m: random.choice(m.group(1).split("|")),
-            rendered,
-        )
-
-        # {{integer min max}} - random integer (accepts negative bounds)
-        rendered = re.sub(
-            r"\{\{integer (-?\d+) (-?\d+)\}\}",
-            lambda m: str(random.randint(int(m.group(1)), int(m.group(2)))),
-            rendered,
-        )
-
-        # {{random_string min max}} - random alphanumeric string
-        rendered = re.sub(
-            r"\{\{random_string (\d+) (\d+)\}\}",
-            lambda m: self._random_string(int(m.group(1)), int(m.group(2))),
-            rendered,
-        )
-
-        # {{random_string_vocabulary min max "chars"}} - random string from vocabulary.
-        # JSON-escaped because vocab can contain characters that would break the JSON string.
-        rendered = re.sub(
-            r'\{\{random_string_vocabulary (\d+) (\d+) "([^"]+)"\}\}',
-            lambda m: _json_escape(
-                self._random_string_vocab(int(m.group(1)), int(m.group(2)), m.group(3))
-            ),
-            rendered,
-        )
-
-        # {{counter "name" start step}} - monotonic counter per name
-        def counter_replacer(m):
-            name, start, step = m.group(1), int(m.group(2)), int(m.group(3))
-            current = self.counters.get(name, start)
-            self.counters[name] = current + step
-            return str(current)
-
-        rendered = re.sub(
-            r'\{\{counter "([^"]+)" (\d+) (\d+)\s*\}\}',
-            counter_replacer,
-            rendered,
-        )
-
-        # {{floating min max}} or {{floating min max decimals}} - random float, accepts negatives
-        def floating_replacer(m):
-            min_val, max_val = float(m.group(1)), float(m.group(2))
-            decimals = int(m.group(3)) if m.group(3) else 2
-            return str(round(random.uniform(min_val, max_val), decimals))
-
-        rendered = re.sub(
-            r"\{\{floating (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)(?:\s+(\d+))?\}\}",
-            floating_replacer,
-            rendered,
-        )
-
-        # {{regex "pattern"}} - generate random string matching regex pattern (via exrex).
-        # JSON-escaped to survive the surrounding JSON string context.
-        rendered = re.sub(
-            r'\{\{regex "([^"]+)"\}\}',
-            lambda m: _json_escape(self._generate_from_regex(m.group(1))),
-            rendered,
-        )
-
+    def render(self, template: jinja2.Template) -> Dict[str, Any]:
+        """Render a compiled template and parse the result as JSON."""
+        rendered = template.render()
         try:
             return json.loads(rendered)
         except json.JSONDecodeError as e:
             print(f"Error parsing rendered template: {e}", file=sys.stderr)
             print(f"Rendered content: {rendered}", file=sys.stderr)
             raise
+
+    def _counter(self, name: str, start: int, step: int) -> int:
+        current = self.counters.get(name, start)
+        self.counters[name] = current + step
+        return current
+
+    @staticmethod
+    def _floating(min_val: float, max_val: float, decimals: int = 2) -> float:
+        return round(random.uniform(min_val, max_val), decimals)
 
     def _random_ip(self, cidr: str) -> str:
         """Generate a random host IP from CIDR (excludes network/broadcast)."""
@@ -295,7 +218,7 @@ def infer_avro_schema(
 
 def sample_for_schema(
     renderer: "TemplateRenderer",
-    template_content: str,
+    template: jinja2.Template,
     num_samples: int = 5,
 ) -> Dict[str, Any]:
     """Render a few samples and merge them so empty/short arrays don't pin
@@ -304,7 +227,7 @@ def sample_for_schema(
     Returns a representative record. Warns on fields that are always empty
     lists since their element type can't be inferred.
     """
-    samples = [renderer.render(template=template_content) for _ in range(num_samples)]
+    samples = [renderer.render(template=template) for _ in range(num_samples)]
     merged = dict(samples[0])
 
     # If a top-level field is an empty list in the first sample but populated
@@ -388,7 +311,7 @@ def delivery_report(err, msg) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SIEM Data Producer for Kafka with Avro")
-    parser.add_argument("template", help="Template name (without .tpl extension)")
+    parser.add_argument("template", help="Template name (without .j2 extension)")
     parser.add_argument("-t", "--topic", help="Kafka topic (not required in dry-run mode)")
     parser.add_argument(
         "-f",
@@ -437,7 +360,7 @@ def main() -> None:
     if not args.dry_run and not args.topic:
         parser.error("the following arguments are required: -t/--topic (not required with --dry-run)")
 
-    template_path = Path(args.templates_dir) / f"{args.template}.tpl"
+    template_path = Path(args.templates_dir) / f"{args.template}.j2"
     if not template_path.exists():
         print(f"Error: Template not found: {template_path}", file=sys.stderr)
         sys.exit(1)
@@ -446,6 +369,7 @@ def main() -> None:
         template_content = f.read()
 
     renderer = TemplateRenderer()
+    template = renderer.compile(template_content)
 
     # Dry run mode - just generate and display data
     if args.dry_run:
@@ -455,7 +379,7 @@ def main() -> None:
             f"template '{args.template}':\n"
         )
         for i in range(num_samples):
-            data = renderer.render(template=template_content)
+            data = renderer.render(template=template)
             print(f"Record {i + 1}:")
             print(json.dumps(data, indent=2))
             print()
@@ -466,7 +390,7 @@ def main() -> None:
 
     # Generate several samples to infer schema — avoids pinning empty-list
     # fields to array<string> when later records would carry real items.
-    sample_data = sample_for_schema(renderer=renderer, template_content=template_content)
+    sample_data = sample_for_schema(renderer=renderer, template=template)
     avro_schema_str = infer_avro_schema(data=sample_data, name=args.template)
 
     print(f"Inferred Avro Schema:\n{json.dumps(json.loads(avro_schema_str), indent=2)}\n")
@@ -511,7 +435,7 @@ def main() -> None:
                     break
 
                 # Generate and serialize
-                data = renderer.render(template=template_content)
+                data = renderer.render(template=template)
                 try:
                     serialized_value = avro_serializer(
                         data,

@@ -1,0 +1,31 @@
+{
+  "timestamp": {{ now() | tojson }},
+  "event_id": {{ random_string_vocabulary(8, 12, "0123456789abcdef") | tojson }},
+  "hostname": {{ randoms("firewall-01.corp.local|firewall-02.corp.local|firewall-03.corp.local|fw-dmz-01|fw-dmz-02|fw-edge-01|fw-edge-02|asa-primary|asa-secondary|palo-alto-01|palo-alto-02|fortigate-01|checkpoint-gw01") | tojson }},
+  "device_type": {{ randoms("firewall|firewall|firewall|ids|ips|waf|proxy") | tojson }},
+  "severity": {{ randoms("info|info|info|warning|warning|critical|alert") | tojson }},
+  "action": {{ randoms("allow|allow|allow|allow|allow|deny|deny|block|drop|reject") | tojson }},
+  "protocol": {{ randoms("tcp|tcp|tcp|tcp|udp|udp|icmp|gre|esp") | tojson }},
+  "access_group": {{ randoms("dmz-external|dmz-internal|internal-servers|user-network|guest-network|admin-network|partner-vpn|remote-access|iot-devices") | tojson }},
+  "rule_name": {{ randoms("allow-web-traffic|allow-dns|allow-email|allow-vpn|block-malicious-ip|block-tor-exit|deny-p2p|allow-api-access|block-suspicious-port|allow-database-access") | tojson }},
+  "threat_category": {{ randoms("none|none|none|none|malware|phishing|botnet|exploit|dos|data-exfiltration|policy-violation") | tojson }},
+  "source": {
+    "ip": {{ randoms("10.10.1.45|10.10.2.67|10.10.3.89|10.10.4.12|10.10.5.156|192.168.1.100|192.168.2.50|172.16.0.10|172.16.1.20|203.0.113.45|198.51.100.23|192.0.2.156") | tojson }},
+    "port": {{ integer(1024, 65535) }},
+    "zone": {{ randoms("internal|dmz|external|guest|partner|admin|iot") | tojson }},
+    "country": {{ randoms("US|US|US|GB|DE|FR|CN|RU|BR|IN|JP|AU") | tojson }}
+  },
+  "destination": {
+    "ip": {{ randoms("10.20.1.10|10.20.2.20|10.20.3.30|172.31.0.50|172.31.1.100|8.8.8.8|1.1.1.1|93.184.216.34|151.101.1.140|104.16.132.229|13.107.42.14") | tojson }},
+    "port": {{ randoms("80|443|443|443|22|21|25|53|3389|3306|5432|8080|8443|9200|27017") | int }},
+    "zone": {{ randoms("internal|dmz|external|cloud|saas") | tojson }},
+    "country": {{ randoms("US|US|US|GB|DE|FR|SG|IE|NL") | tojson }}
+  },
+  "bytes_sent": {{ integer(100, 1048576) }},
+  "bytes_received": {{ integer(100, 1048576) }},
+  "packets_sent": {{ integer(1, 10000) }},
+  "packets_received": {{ integer(1, 10000) }},
+  "session_duration": {{ integer(1, 3600) }},
+  "application": {{ randoms("web-browsing|ssl|ssh|dns|http|https|ftp|smtp|pop3|imap|rdp|vnc|telnet|ntp|snmp|ldap|kerberos|smb|nfs|mysql|postgresql|mongodb|redis|elasticsearch|kafka|unknown") | tojson }},
+  "user": {{ randoms("system|admin|jdoe|asmith|bwilson|mchen|sgarcia|rjohnson|klee|tmartin|anonymous|service-account|api-user") | tojson }}
+}
