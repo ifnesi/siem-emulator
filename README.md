@@ -7,7 +7,7 @@ Generate realistic SIEM (Security Information and Event Management) data and pro
 - ✅ Custom templates
 - ✅ Automatic Avro schema inference from templates
 - ✅ Schema Registry integration
-- ✅ Configurable frequency and batch size
+- ✅ Configurable frequency and batch size (deadline-paced so production time doesn't drift the rate)
 - ✅ Continuous or fixed-count production modes
 - ✅ 5 comprehensive SIEM templates included
 - ✅ Realistic data for demos and testing
@@ -231,7 +231,7 @@ Perfect for:
 ## How It Works
 
 1. **Template Rendering**: The Python script reads your template and renders it with random data
-2. **Schema Inference**: Avro schema is automatically inferred from the generated JSON structure
+2. **Schema Inference**: Several sample records are generated and merged to infer the Avro schema — this prevents fields that happen to be empty arrays in the first sample from being permanently typed as `array<string>`
 3. **Schema Registration**: Schema is registered with Schema Registry
 4. **Avro Serialization**: Data is serialized using the inferred Avro schema
 5. **Kafka Production**: Serialized data is produced to the specified topic
@@ -255,12 +255,11 @@ Perfect for:
 - `{{ip_known_port}}` - Random well-known port (20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8080, 8443)
 - `{{ip_known_protocol}}` - Random protocol (HTTP, HTTPS, FTP, SSH, SMTP, DNS, TELNET, IMAP, POP3, SMB, MySQL, PostgreSQL, RDP)
 - `{{randoms "a|b|c"}}` - Random choice from pipe-separated options
-- `{{integer min max}}` - Random integer in range
-- `{{floating min max [decimals]}}` - Random floating-point number (default 2 decimal places) 🆕
+- `{{integer min max}}` - Random integer in range (accepts negative bounds)
+- `{{floating min max [decimals]}}` - Random floating-point number, accepts negatives (default 2 decimal places) 🆕
 - `{{random_string min max}}` - Random alphanumeric string
 - `{{random_string_vocabulary min max "chars"}}` - Random string from character set
-- `{{random_v_from_list "list"}}` - Random value from list (simplified to IP generation)
-- `{{counter "name" start step}}` - Counter value (simplified to random for now)
+- `{{counter "name" start step}}` - Monotonic counter per name (start, start+step, start+2*step, ...)
 - `{{regex "pattern"}}` - Random string matching regex pattern 🎉
 
 ### Floating-Point Numbers
@@ -272,10 +271,11 @@ The `{{floating min max [decimals]}}` function generates random floating-point n
 {
   "temperature": {{floating 15 35}},           // 23.45 (default 2 decimals)
   "cpu_usage": {{floating 0 100}},             // 78.92 (default 2 decimals)
+  "delta": {{floating -1.5 1.5 2}},            // -0.42 (negative bounds allowed)
   "disk_io": {{floating 0.5 10.5 1}},          // 7.8 (1 decimal)
   "response_time": {{floating 0.1 5.9 3}},     // 2.347 (3 decimals)
   "precision_value": {{floating 0 1 4}},       // 0.1234 (4 decimals)
-  "percentage": {{floating 0 100 0}}           // 78 (0 decimals - whole number)
+  "percentage": {{floating 0 100 0}}           // 78.0 (0 decimals — still a float; use {{integer}} for an int)
 }
 ```
 
@@ -283,15 +283,14 @@ The `{{floating min max [decimals]}}` function generates random floating-point n
 
 The `{{regex "pattern"}}` function generates random strings matching regex patterns. Perfect for creating realistic formatted data like SSNs, phone numbers, license plates, etc.
 
-**Supported regex features:**
-- `\d` - Random digit (0-9)
-- `\w` - Random word character (a-z, A-Z, 0-9, _)
-- `\s` - Whitespace
-- `[a-z]`, `[A-Z]`, `[0-9]` - Character classes with ranges
-- `{n}` - Exact repetition (e.g., `\d{3}` = 3 digits)
-- `{n,m}` - Variable repetition (e.g., `[a-z]{5,10}` = 5-10 lowercase letters)
-- `.` - Any alphanumeric character
-- `\(`, `\)` - Literal parentheses (and other escaped characters)
+**Supported regex features:** anything Python's `re` module supports — the generator delegates to the [`exrex`](https://pypi.org/project/exrex/) library. Common examples:
+- `\d`, `\w`, `\s` - digit / word / whitespace
+- `[a-z]`, `[A-Z]`, `[0-9]`, `[^abc]` - character classes (incl. negation)
+- `{n}`, `{n,m}`, `+`, `*`, `?` - repetition
+- `a|b|c` - alternation
+- `(...)` - groups
+- `.` - any character
+- `\(`, `\)`, `\.` - literal escapes
 
 **Examples:**
 ```json
@@ -436,7 +435,8 @@ docker compose down -v
     ├── dns_log.tpl
     ├── siem_log.tpl
     ├── net_device.tpl
-    └── syslog_log.tpl
+    ├── syslog_log.tpl
+    └── pcap_data.tpl
 ```
 
 ## Resources
