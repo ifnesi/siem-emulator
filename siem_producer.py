@@ -11,13 +11,11 @@ import time
 import random
 import argparse
 
-from datetime import datetime, timezone
 from typing import Dict, Any
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from argparse import ArgumentParser, Namespace
 
-from confluent_kafka.cimpl import Producer
 from confluent_kafka.schema_registry._sync.avro import AvroSerializer
 from confluent_kafka.schema_registry._sync.schema_registry_client import (
     SchemaRegistryClient,
@@ -78,7 +76,7 @@ class TemplateRenderer:
         template: str,
     ) -> Dict[str, Any]:
         """Render a template string to a dictionary"""
-        # Replace JR template functions with actual values
+        # Replace template functions with actual values
         rendered: str = template
 
         # {{now}} - current timestamp

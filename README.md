@@ -238,8 +238,6 @@ Perfect for:
 
 ## Template Syntax
 
-Templates use JR-style functions:
-
 ```json
 {
   "ts": "{{now}}",
