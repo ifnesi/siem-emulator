@@ -332,7 +332,7 @@ def load_config(config_file: str) -> Dict[str, str]:
 def create_topic_if_not_exists(
     kafka_config: Dict[str, str],
     topic: str,
-    partitions: int = 1,
+    partitions: int = 6,
     replication: int = 1,
 ) -> None:
     """Create the topic if it doesn't already exist."""
@@ -585,7 +585,22 @@ def main() -> None:
                     logger.error("Error serializing message: %s", e)
                     continue
 
-                message_key = str(data[args.key]).encode("utf-8") if args.key else None
+                # Per-record key validation. Startup only validates the first
+                # sample; a template with conditional fields could omit the key
+                # field on later renders, which would otherwise silently
+                # produce the string "None" as the partition key.
+                message_key = None
+                if args.key:
+                    key_value = data.get(args.key)
+                    if not isinstance(key_value, (str, int, float, bool)):
+                        logger.error(
+                            "Key field '%s' is missing or non-scalar in this "
+                            "record (got %s); skipping",
+                            args.key,
+                            type(key_value).__name__,
+                        )
+                        continue
+                    message_key = str(key_value).encode("utf-8")
 
                 # Produce, retrying on BufferError so a transient full queue
                 # doesn't silently drop records. Drop after MAX_RETRIES so a
