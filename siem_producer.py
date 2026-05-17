@@ -8,6 +8,8 @@ import sys
 import json
 import time
 import uuid
+import exrex
+import jinja2
 import random
 import logging
 import argparse
@@ -18,8 +20,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from concurrent.futures import Future
 
-import exrex
-import jinja2
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka.serialization import SerializationContext, MessageField
