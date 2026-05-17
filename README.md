@@ -323,7 +323,9 @@ Long pipe-separated lists clutter templates and force a code change every time y
 templates/data/
 ├── countries          # one value per line
 ├── devices
+├── dns_servers
 ├── endpoints
+├── interfaces
 ├── known_ports
 ├── known_protocols
 └── users
@@ -587,7 +589,9 @@ docker compose down -v
     └── data/                  # Plain-text lists, one value per line
         ├── countries          #   → data.countries
         ├── devices            #   → data.devices
+        ├── dns_servers        #   → data.dns_servers
         ├── endpoints          #   → data.endpoints
+        ├── interfaces         #   → data.interfaces
         ├── known_ports        #   → data.known_ports
         ├── known_protocols    #   → data.known_protocols
         └── users              #   → data.users
