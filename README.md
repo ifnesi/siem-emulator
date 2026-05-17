@@ -38,7 +38,7 @@ Wait 30-60 seconds for services to start. Access Control Center at http://localh
 
 ### 3. Run Producers
 
-Topics are created automatically if they don't exist (1 partition, replication factor 1).
+Topics are created automatically if they don't exist (6 partitions by default, replication factor 1). Use `-p/--partitions N` to override.
 
 ```bash
 # Activate virtual environment first
@@ -178,14 +178,20 @@ Required Arguments:
   -t, --topic TOPIC     Kafka topic name (not required with --dry-run)
 
 Optional Arguments:
-  -f, --frequency SEC   Seconds between records (default: 1.0)
-  -n, --num-records N   Total records to produce (0 = continuous, default: 0)
-  -b, --batch-size N    Records per batch (default: 1)
-  --dry-run             Generate and display data without producing to Kafka
-  --kafka-config FILE   Kafka config file (default: ./kafka/config.properties)
-  --registry-config FILE Schema Registry config (default: ./kafka/registry.properties)
-  --templates-dir DIR   Templates directory (default: ./templates)
-  --namespace NS        Avro schema namespace (default: io.confluent.siem)
+  -f, --frequency SEC          Seconds between records (default: 1.0)
+  -n, --num-records N          Total records to produce (0 = continuous, default: 0)
+  -b, --batch-size N           Records per batch (default: 1)
+  -k, --key FIELD              Top-level field whose value is used as the Kafka
+                               message key (must be a scalar). Default: no key (null).
+  -p, --partitions N           Partitions when creating the topic (default: 6).
+                               Ignored if the topic already exists.
+  -s, --schema-id-location LOC Where to put the Avro schema ID — `headers` (default,
+                               modern) or `body` (legacy 5-byte magic-byte framing).
+  -ns, --namespace NS          Avro schema namespace (default: io.confluent.siem)
+  --dry-run                    Generate and display data without producing to Kafka
+  --kafka-config FILE          Kafka config file (default: ./kafka/config.properties)
+  --registry-config FILE       Schema Registry config (default: ./kafka/registry.properties)
+  --templates-dir DIR          Templates directory (default: ./templates)
 
 Examples:
   # Dry run - preview generated data without Kafka
@@ -202,7 +208,50 @@ Examples:
 
   # Batch mode
   python siem_producer.py syslog_log -t syslog_log -f 5 -b 100
+
+  # Keyed messages (partition by event_id)
+  python siem_producer.py auth_event -t auth_events -k event_id
+
+  # Custom partition count and legacy schema-ID body framing
+  python siem_producer.py dns_log -t dns_log -p 12 -s body
 ```
+
+### Message Keys
+
+By default messages are produced with a null key. Use `-k`/`--key FIELD` to set the Kafka message key from a top-level field in the rendered record:
+
+```bash
+python siem_producer.py auth_event -t auth_events -k event_id
+python siem_producer.py dns_log    -t dns_log     -k src_ip
+```
+
+- The field must exist in the rendered record and be a **scalar** (string, int, float, or bool). Nested objects and arrays are rejected at startup.
+- The key value is serialized as a UTF-8 string (so Control Center / `kafka-console-consumer` display it cleanly).
+- The field **remains in the value payload** — keying is purely additive; the Avro schema is unchanged.
+- Useful for partitioning by user, host, IP, or correlation ID so all events for the same entity land on the same partition (and therefore preserve order).
+
+### Topic Partitions
+
+When the producer creates a topic, it uses `-p`/`--partitions` (default `6`). This only applies at **creation time** — if the topic already exists, the flag is ignored and Kafka keeps the existing partition count. To change partitions on an existing topic you must delete it or use `kafka-topics --alter --partitions N` (which can only **increase** the count, and will break keyed-message ordering guarantees for existing keys).
+
+### Schema ID Location
+
+The Avro [schema ID](https://www.confluent.io/blog/schema-id-kafka-headers-data-governance/) tells consumers which registered schema was used to serialize a message. The producer supports two placements via `-s`/`--schema-id-location`:
+
+| Mode      | What it does                                                                              | When to use                                                                                                              |
+| --------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `headers` | (default) Schema ID lives in a Kafka message header named `__value_schema_id`.            | Modern default. Cleaner value payload (no framing bytes), better for data-governance tooling and non-Avro-aware consumers. Requires Confluent Platform 7.4+ / clients that understand header framing. |
+| `body`    | Schema ID is prefixed inside the value bytes as `0x00 <4-byte big-endian id>` (5 bytes).  | Legacy. Required for older consumers or libraries that haven't adopted header framing yet.                               |
+
+```bash
+# Default — schema ID in headers
+python siem_producer.py dns_log -t dns_log
+
+# Legacy body framing
+python siem_producer.py dns_log -t dns_log -s body
+```
+
+Don't mix modes within the same topic — a topic written with one mode and consumed with a client expecting the other will fail to deserialize.
 
 ### Dry Run Mode
 
@@ -476,14 +525,13 @@ Schema inference walks the rendered Python dict and maps each value:
 | Python value                          | Avro type                |
 | ------------------------------------- | ------------------------ |
 | `str`                                 | `string`                 |
-| `int` within ±2,147,483,647           | `int`                    |
-| `int` outside that range (e.g. ms epoch from `unix_time_stamp`) | `long` |
+| `int` (any range)                     | `long`                   |
 | `float`                               | `double`                 |
 | `bool`                                | `boolean`                |
 | `dict`                                | nested `record`          |
 | `list`                                | `array`                  |
 
-If a field must be numeric, render it bare (no `tojson`). If it must be a `long`, use a value over the 32-bit range — `unix_time_stamp()` returns ms epoch and is automatically promoted.
+Integers are always emitted as `long` rather than `int`. Picking based on a sampled value is non-deterministic (random samples can land on either side of 2^31), and once a topic is registered with `long`, Schema Registry's BACKWARD compatibility forbids narrowing back to `int`. Widening `int` → `long` is safe (Avro promotes `int` writers to `long` readers).
 
 **Logical types.** A few helpers also annotate the schema with an Avro `logicalType`:
 

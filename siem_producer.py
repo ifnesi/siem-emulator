@@ -9,6 +9,7 @@ import json
 import time
 import uuid
 import random
+import logging
 import argparse
 import ipaddress
 
@@ -22,8 +23,14 @@ import jinja2
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka.serialization import SerializationContext, MessageField
-from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.schema_registry import (
+    SchemaRegistryClient,
+    header_schema_id_serializer,
+    prefix_schema_id_serializer,
+)
 from confluent_kafka.schema_registry.avro import AvroSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class TemplateRenderer:
@@ -80,9 +87,11 @@ class TemplateRenderer:
     @staticmethod
     def _randoms(options):
         """Pick a random element. Accepts a pipe-separated string (`"a|b|c"`)
-        or any sequence (e.g. `data.countries`)."""
+        or any sequence (e.g. `data.countries`). When given a string, each
+        entry is stripped of surrounding whitespace and empty entries are
+        dropped, so `"a | b | "` is equivalent to `"a|b"`."""
         if isinstance(options, str):
-            options = options.split("|")
+            options = [o.strip() for o in options.split("|") if o.strip()]
         return random.choice(options)
 
     def compile(self, source: str) -> jinja2.Template:
@@ -102,8 +111,8 @@ class TemplateRenderer:
         try:
             data = json.loads(rendered)
         except json.JSONDecodeError as e:
-            print(f"Error parsing rendered template: {e}", file=sys.stderr)
-            print(f"Rendered content: {rendered}", file=sys.stderr)
+            logger.error("Error parsing rendered template: %s", e)
+            logger.error("Rendered content: %s", rendered)
             raise
         return self._unwrap_logical_markers(data)
 
@@ -227,7 +236,12 @@ def infer_avro_schema(
                     "type": _LOGICAL_TYPE_PRIMITIVE.get(logical, "long"),
                     "logicalType": logical,
                 }
-            return "long" if value > 2147483647 or value < -2147483648 else "int"
+            # Always emit `long` for integers. Picking `int` vs `long` based
+            # on a sampled value is non-deterministic — random samples can land
+            # on either side of 2^31, and once a topic is registered with
+            # `long`, the registry's BACKWARD compatibility forbids narrowing
+            # back to `int`. `int` -> `long` is a safe widening.
+            return "long"
         if isinstance(value, float):
             return "double"
         if isinstance(value, str):
@@ -294,10 +308,10 @@ def sample_for_schema(
 
     for key, value in merged.items():
         if isinstance(value, list) and not value:
-            print(
-                f"Warning: field '{key}' is always an empty list in samples; "
-                f"defaulting its element type to string.",
-                file=sys.stderr,
+            logger.warning(
+                "Field '%s' is always an empty list in samples; "
+                "defaulting its element type to string.",
+                key,
             )
 
     return merged
@@ -330,7 +344,7 @@ def create_topic_if_not_exists(
 
     metadata = admin_client.list_topics(timeout=10)
     if topic in metadata.topics:
-        print(f"Topic '{topic}' already exists")
+        logger.info("Topic '%s' already exists", topic)
         return
 
     new_topic = NewTopic(topic, num_partitions=partitions, replication_factor=replication)
@@ -339,9 +353,9 @@ def create_topic_if_not_exists(
     for topic_name, future in futures.items():
         try:
             future.result()
-            print(f"Topic '{topic_name}' created successfully")
+            logger.info("Topic '%s' created successfully", topic_name)
         except Exception as e:
-            print(f"Failed to create topic '{topic_name}': {e}", file=sys.stderr)
+            logger.error("Failed to create topic '%s': %s", topic_name, e)
 
 
 def create_producer(kafka_config: Dict[str, str]) -> Producer:
@@ -349,20 +363,28 @@ def create_producer(kafka_config: Dict[str, str]) -> Producer:
     producer_config: dict[str, Any] = dict(kafka_config)
     producer_config.setdefault("bootstrap.servers", "localhost:9092")
     producer_config.setdefault("security.protocol", "PLAINTEXT")
-    # Surface broker-side issues (DNS failure, auth, broker down) to stderr.
-    producer_config["error_cb"] = lambda err: print(
-        f"Kafka producer error: {err}", file=sys.stderr
-    )
+    # Surface broker-side issues (DNS failure, auth, broker down).
+    producer_config["error_cb"] = lambda err: logger.error("Kafka producer error: %s", err)
     return Producer(producer_config)
 
 
 def delivery_report(err, msg) -> None:
     """Delivery callback — logs only on failure to avoid flooding stdout."""
     if err is not None:
-        print(f"Message delivery failed: {err}", file=sys.stderr)
+        logger.error("Message delivery failed: %s", err)
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    # Third-party HTTP clients (used by the Schema Registry SDK) are chatty at
+    # INFO — keep them at WARNING so our own messages aren't drowned out.
+    for noisy in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     parser = argparse.ArgumentParser(description="SIEM Data Producer for Kafka with Avro")
     parser.add_argument("template", help="Template name (without .j2 extension)")
     parser.add_argument("-t", "--topic", help="Kafka topic (not required in dry-run mode)")
@@ -409,6 +431,35 @@ def main() -> None:
         help="Avro schema namespace (default: io.confluent.siem)",
     )
     parser.add_argument(
+        "-p",
+        "--partitions",
+        type=int,
+        default=6,
+        help="Number of partitions when creating the topic (default: 6). "
+             "Ignored if the topic already exists.",
+    )
+    parser.add_argument(
+        "-s",
+        "--schema-id-location",
+        choices=["headers", "body"],
+        default="headers",
+        help=(
+            "Where to place the Avro schema ID. 'headers' (default, modern) "
+            "stores it in the Kafka message headers; 'body' (legacy) prefixes "
+            "it to the serialized value with the 5-byte magic-byte framing."
+        ),
+    )
+    parser.add_argument(
+        "-k",
+        "--key",
+        default=None,
+        help=(
+            "Top-level field whose value is used as the Kafka message key "
+            "(must be a scalar: string, int, float, or bool). The field "
+            "remains in the value payload. Default: no key (null)."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Generate and display data without producing to Kafka",
@@ -421,7 +472,7 @@ def main() -> None:
 
     template_path = Path(args.templates_dir) / f"{args.template}.j2"
     if not template_path.exists():
-        print(f"Error: Template not found: {template_path}", file=sys.stderr)
+        logger.error("Template not found: %s", template_path)
         sys.exit(1)
 
     with open(template_path, "r", encoding="utf-8") as f:
@@ -457,7 +508,23 @@ def main() -> None:
         logical_types=renderer.logical_types,
     )
 
-    print(f"Inferred Avro Schema:\n{json.dumps(json.loads(avro_schema_str), indent=2)}\n")
+    if args.key is not None:
+        if args.key not in sample_data:
+            parser.error(
+                f"--key '{args.key}' not found in rendered template. "
+                f"Available top-level fields: {sorted(sample_data.keys())}"
+            )
+        sample_value = sample_data[args.key]
+        if not isinstance(sample_value, (str, int, float, bool)):
+            parser.error(
+                f"--key '{args.key}' must reference a scalar field "
+                f"(string, int, float, bool); got {type(sample_value).__name__}"
+            )
+
+    logger.info(
+        "Inferred Avro Schema:\n%s",
+        json.dumps(json.loads(avro_schema_str), indent=2),
+    )
 
     schema_registry_conf = {
         "url": registry_config.get("schemaRegistryURL", "http://localhost:8081")
@@ -466,24 +533,29 @@ def main() -> None:
         schema_registry_conf["basic.auth.user.info"] = registry_config["basic.auth.user.info"]
 
     schema_registry_client = SchemaRegistryClient(schema_registry_conf)
+    schema_id_serializer = (
+        header_schema_id_serializer
+        if args.schema_id_location == "headers"
+        else prefix_schema_id_serializer
+    )
     avro_serializer = AvroSerializer(
         schema_registry_client,
         avro_schema_str,
         lambda obj, ctx: obj,  # obj is already a dict
+        conf={"schema.id.serializer": schema_id_serializer},
     )
+    logger.info("Schema ID location: %s", args.schema_id_location)
 
-    print(f"Checking/creating topic '{args.topic}'...")
-    create_topic_if_not_exists(kafka_config, topic=args.topic)
-    print()
+    logger.info("Checking/creating topic '%s'...", args.topic)
+    create_topic_if_not_exists(kafka_config, topic=args.topic, partitions=args.partitions)
 
     producer = create_producer(kafka_config)
 
-    print(f"Producing to topic '{args.topic}' with frequency {args.frequency}s")
+    logger.info("Producing to topic '%s' with frequency %ss", args.topic, args.frequency)
     if args.num_records > 0:
-        print(f"Total records: {args.num_records}")
+        logger.info("Total records: %d", args.num_records)
     else:
-        print("Mode: Continuous (press Ctrl+C to stop)")
-    print()
+        logger.info("Mode: Continuous (press Ctrl+C to stop)")
 
     try:
         count = 0
@@ -498,16 +570,22 @@ def main() -> None:
                 if args.num_records > 0 and count >= args.num_records:
                     break
 
-                # Generate and serialize
+                # Generate and serialize. `header_schema_id_serializer`
+                # populates the passed headers list with the schema-id entry,
+                # which we then forward to producer.produce(). For body
+                # (prefix) mode the list stays empty and is harmless.
                 data = renderer.render(template=template)
+                headers: list = []
                 try:
                     serialized_value = avro_serializer(
                         data,
-                        SerializationContext(args.topic, MessageField.VALUE),
+                        SerializationContext(args.topic, MessageField.VALUE, headers),
                     )
                 except Exception as e:
-                    print(f"Error serializing message: {e}", file=sys.stderr)
+                    logger.error("Error serializing message: %s", e)
                     continue
+
+                message_key = str(data[args.key]).encode("utf-8") if args.key else None
 
                 # Produce, retrying on BufferError so a transient full queue
                 # doesn't silently drop records. Drop after MAX_RETRIES so a
@@ -517,7 +595,9 @@ def main() -> None:
                     try:
                         producer.produce(
                             topic=args.topic,
+                            key=message_key,
                             value=serialized_value,
+                            headers=headers if headers else None,
                             callback=delivery_report,
                         )
                         producer.poll(0)
@@ -525,14 +605,14 @@ def main() -> None:
                         break
                     except BufferError:
                         if attempt == MAX_RETRIES:
-                            print(
-                                f"Buffer full after {MAX_RETRIES} retries — dropping record",
-                                file=sys.stderr,
+                            logger.warning(
+                                "Buffer full after %d retries — dropping record",
+                                MAX_RETRIES,
                             )
                             break
                         producer.poll(0.5)
                     except Exception as e:
-                        print(f"Error producing message: {e}", file=sys.stderr)
+                        logger.error("Error producing message: %s", e)
                         break
 
             # Pace the next batch against a deadline so production time doesn't
@@ -548,17 +628,17 @@ def main() -> None:
                     next_deadline = time.monotonic()
 
     except KeyboardInterrupt:
-        print("\nStopping producer...")
+        logger.info("Stopping producer...")
 
     finally:
         # Final flush, bounded so we don't hang forever if the broker is gone.
         remaining = producer.flush(timeout=30)
         if remaining:
-            print(
-                f"Warning: {remaining} message(s) still in queue after 30s flush timeout",
-                file=sys.stderr,
+            logger.warning(
+                "%d message(s) still in queue after 30s flush timeout",
+                remaining,
             )
-        print(f"\nTotal records produced: {count}")
+        logger.info("Total records produced: %d", count)
 
 
 if __name__ == "__main__":
