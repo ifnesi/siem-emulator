@@ -13,13 +13,13 @@
     "ip": {{ randoms("10.10.1.45|10.10.2.67|10.10.3.89|10.10.4.12|10.10.5.156|192.168.1.100|192.168.2.50|172.16.0.10|172.16.1.20|203.0.113.45|198.51.100.23|192.0.2.156") | tojson }},
     "port": {{ integer(1024, 65535) }},
     "zone": {{ randoms("internal|dmz|external|guest|partner|admin|iot") | tojson }},
-    "country": {{ randoms("US|US|US|GB|DE|FR|CN|RU|BR|IN|JP|AU") | tojson }}
+    "country": {{ randoms(data.countries) | tojson }}
   },
   "destination": {
     "ip": {{ randoms("10.20.1.10|10.20.2.20|10.20.3.30|172.31.0.50|172.31.1.100|8.8.8.8|1.1.1.1|93.184.216.34|151.101.1.140|104.16.132.229|13.107.42.14") | tojson }},
-    "port": {{ randoms("80|443|443|443|22|21|25|53|3389|3306|5432|8080|8443|9200|27017") | int }},
+    "port": {{ randoms(data.known_ports) | int }},
     "zone": {{ randoms("internal|dmz|external|cloud|saas") | tojson }},
-    "country": {{ randoms("US|US|US|GB|DE|FR|SG|IE|NL") | tojson }}
+    "country": {{ randoms(data.countries) | tojson }}
   },
   "bytes_sent": {{ integer(100, 1048576) }},
   "bytes_received": {{ integer(100, 1048576) }},

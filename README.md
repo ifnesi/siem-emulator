@@ -257,9 +257,9 @@ Templates are [Jinja2](https://jinja.palletsprojects.com/) files (`.j2`) that re
 - `now()` - Current UTC timestamp (string)
 - `unix_time_stamp(N)` - Unix timestamp in **milliseconds**, randomly chosen between now and N seconds ago (long)
 - `ip("CIDR")` - Random IP from CIDR range (string)
-- `ip_known_port()` - Random well-known port (20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 8080, 8443)
-- `ip_known_protocol()` - Random protocol (HTTP, HTTPS, FTP, SSH, SMTP, DNS, TELNET, IMAP, POP3, SMB, MySQL, PostgreSQL, RDP)
-- `randoms("a|b|c")` - Random choice from pipe-separated options (string). Repeat options to bias the distribution: `"info|info|info|warning"`. Cast to a number with `| int` when emitting into a numeric field (e.g. `randoms("80|443|22") | int`).
+- `guid()` - Random UUID4 as a lowercase hyphenated string, e.g. `"550e8400-e29b-41d4-a716-446655440000"` (string). Use in place of a hand-rolled `regex("[0-9a-f]{8}-...")` for event/trace/correlation IDs.
+- `randoms(source)` - Random choice from `source`, which is either a pipe-separated string (`"a|b|c"`) or any sequence — typically one of the lists loaded from `templates/data/` and exposed as `data.<filename>` (e.g. `randoms(data.countries)`). Repeat values to bias the distribution: `"info|info|info|warning"`. Cast to a number with `| int` when emitting into a numeric field (e.g. `randoms(data.known_ports) | int`).
+- `data.<filename>` - List of stripped, non-empty, non-comment lines loaded from `templates/data/<filename>` at startup. See **External Data Sources** below.
 - `integer(min, max)` - Random integer in range (accepts negative bounds)
 - `floating(min, max, decimals=2)` - Random floating-point number, accepts negatives
 - `random_string(min, max)` - Random alphanumeric string of length in `[min, max]`
@@ -315,6 +315,99 @@ The `{{regex "pattern"}}` function generates random strings matching regex patte
 
 **Note:** Backslashes inside Jinja string literals follow Python rules, so write `"\\d"` for a literal `\d`. The generator also accepts the older quadruple-backslash form (`"\\\\d"`) for backward compatibility.
 
+### External Data Sources
+
+Long pipe-separated lists clutter templates and force a code change every time you tweak the catalog of countries, hostnames, ports, etc. Instead, keep the list in its own plain-text file under `templates/data/`:
+
+```
+templates/data/
+├── countries          # one value per line
+├── devices
+├── endpoints
+├── known_ports
+├── known_protocols
+└── users
+```
+
+At startup the producer reads every file in that directory and exposes it on the Jinja2 `data` global, keyed by filename. A file named `countries` becomes `data.countries` — a Python list of strings.
+
+**File format**
+- One value per line.
+- Surrounding whitespace is trimmed and blank lines are ignored.
+- Lines whose first non-whitespace character is `#` are treated as comments and skipped — handy for grouping or annotating entries. There's no escape for a literal leading `#`; if you genuinely need a value that starts with `#` (e.g. a hex color like `#FF5733`), generate it from a template helper such as `regex("#[0-9A-F]{6}")` instead of putting it in a data file.
+- Filename (no extension required) becomes the attribute name; stick to identifier-safe names so `data.foo` works (use `data["foo-bar"]` if you really need a dash).
+- Repeat lines to bias the distribution — `US` appearing 11× and `JP` 3× makes `US` ~3.7× more likely.
+
+Example with comments:
+
+```
+# Common Linux daemons
+sshd
+nginx
+postgres
+
+# Container runtime
+docker
+containerd
+```
+
+**Using a data source in a template**
+
+```jinja
+{
+  "country":  {{ randoms(data.countries) | tojson }},
+  "host":     {{ randoms(data.endpoints) | tojson }},
+  "device":   {{ randoms(data.devices) | tojson }},
+  "protocol": {{ randoms(data.known_protocols) | tojson }},
+  "port":     {{ randoms(data.known_ports) | int }}
+}
+```
+
+Everything in `data.*` is a list of **strings** — cast to a number with `| int` (or `| float`) when emitting into a numeric field, just like inline `randoms("80|443") | int`.
+
+**Extending a data source inline**
+
+`data.*` values are ordinary Python lists, so the natural Jinja2 way to extend one is list concatenation with `+`. No new helper needed:
+
+```jinja
+{# Add a couple of extras for this template only #}
+{{ randoms(data.users + ["root", "admin"]) | tojson }}
+
+{# Bias the inline additions by repeating them (operator * on a list) #}
+{{ randoms(data.users + ["root"] * 20) | tojson }}
+
+{# Prefer pipe-shorthand for the extras? Use Python's str.split #}
+{{ randoms(data.users + "root|admin".split("|")) | tojson }}
+
+{# Combine two data files into one pool #}
+{{ randoms(data.users + data.service_accounts) | tojson }}
+```
+
+If the same combined pool is reused across several fields in one template, build it once with `{% set %}`:
+
+```jinja
+{% set user_pool = data.users + ["root", "admin"] %}
+{
+  "actor": {{ randoms(user_pool) | tojson }},
+  "owner": {{ randoms(user_pool) | tojson }}
+}
+```
+
+The same trick works for filtering, slicing, or sorting (`data.users | reject("startswith", "svc-") | list`, `data.countries[:5]`, etc.) — anything Jinja2 can do to a list works against `data.*` for free.
+
+**Adding your own data source**
+
+1. Drop a new file into `templates/data/` (e.g. `templates/data/usernames`).
+2. Put one value per line; repeat values to weight the distribution.
+3. Reference it from any template as `data.usernames`.
+4. Restart the producer — files are loaded once at startup.
+
+Because `data.*` values are ordinary Python lists, every Jinja2 list construct works on them too — e.g. iterate with `{% for u in data.usernames %}…{% endfor %}` or pick at random with the built-in filter: `{{ data.countries | random | tojson }}`.
+
+**When to use a data file vs. inline `randoms("a|b|c")`**
+- **Data file** — long lists, lists shared across templates, anything a non-developer should be able to edit, or anything you want under version control as data rather than code.
+- **Inline** — short, template-specific options where the distribution is part of the template's meaning (e.g. `randoms("info|info|info|warning|error")`).
+
 ## Creating Custom Templates
 
 1. Create a new `.j2` file in `templates/`.
@@ -328,7 +421,7 @@ A richer template that exercises every helper. Save as `templates/auth_event.j2`
 ```jinja
 {
   "timestamp":  {{ now() | tojson }},
-  "event_id":   {{ regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") | tojson }},
+  "event_id":   {{ guid() | tojson }},
   "sequence":   {{ counter("auth", 1, 1) }},
   "occurred_at_ms": {{ unix_time_stamp(60) }},
   "user":       {{ randoms("alice|bob|carol|dave|root") | tojson }},
@@ -490,7 +583,14 @@ docker compose down -v
     ├── siem_log.j2
     ├── net_device.j2
     ├── syslog_log.j2
-    └── pcap_data.j2
+    ├── pcap_data.j2
+    └── data/                  # Plain-text lists, one value per line
+        ├── countries          #   → data.countries
+        ├── devices            #   → data.devices
+        ├── endpoints          #   → data.endpoints
+        ├── known_ports        #   → data.known_ports
+        ├── known_protocols    #   → data.known_protocols
+        └── users              #   → data.users
 ```
 
 ## Resources

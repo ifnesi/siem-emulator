@@ -1,0 +1,8 @@
+GigabitEthernet0/1
+GigabitEthernet0/2
+GigabitEthernet1/1
+Port-channel1
+TenGigabitEthernet0/1
+Vlan100
+Vlan200
+Vlan300

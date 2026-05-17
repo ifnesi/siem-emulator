@@ -1,0 +1,133 @@
+# Core switches (datacenter spine / backbone)
+core-switch-01
+core-switch-02
+core-switch-03
+core-switch-04
+core-switch-05
+core-switch-06
+core-switch-07
+core-switch-08
+
+# Distribution switches (building / floor aggregation)
+dist-switch-01
+dist-switch-02
+dist-switch-03
+dist-switch-04
+dist-switch-05
+dist-switch-06
+dist-switch-07
+dist-switch-08
+dist-switch-09
+dist-switch-10
+dist-switch-11
+dist-switch-12
+
+# Access switches (user / edge port density)
+access-switch-01
+access-switch-02
+access-switch-03
+access-switch-04
+access-switch-05
+access-switch-06
+access-switch-07
+access-switch-08
+access-switch-09
+access-switch-10
+access-switch-11
+access-switch-12
+access-switch-13
+access-switch-14
+access-switch-15
+access-switch-16
+access-switch-17
+access-switch-18
+access-switch-19
+access-switch-20
+
+# Edge routers (campus / branch egress)
+edge-router-01
+edge-router-02
+edge-router-03
+edge-router-04
+edge-router-05
+edge-router-06
+
+# WAN routers (site-to-site / MPLS / SD-WAN)
+wan-router-01
+wan-router-02
+wan-router-03
+wan-router-04
+
+# Internal firewalls (east-west segmentation)
+fw-internal-01
+fw-internal-02
+fw-internal-03
+fw-internal-04
+fw-internal-05
+fw-internal-06
+
+# Perimeter firewalls (internet edge)
+fw-perimeter-01
+fw-perimeter-02
+fw-perimeter-03
+fw-perimeter-04
+
+# DMZ firewalls
+fw-dmz-01
+fw-dmz-02
+fw-dmz-03
+
+# Load balancers
+load-balancer-01
+load-balancer-02
+load-balancer-03
+load-balancer-04
+load-balancer-05
+
+# Wireless LAN controllers
+wlc-01
+wlc-02
+wlc-03
+
+# Wireless access points
+ap-floor1-01
+ap-floor1-02
+ap-floor2-01
+ap-floor2-02
+ap-floor3-01
+ap-floor3-02
+ap-lobby-01
+ap-warehouse-01
+
+# VPN gateways (remote-access + site-to-site)
+vpn-gw-01
+vpn-gw-02
+vpn-gw-03
+vpn-gw-04
+
+# IDS sensors
+ids-sensor-01
+ids-sensor-02
+ids-sensor-03
+ids-sensor-04
+
+# IPS appliances
+ips-01
+ips-02
+ips-03
+
+# Web Application Firewalls
+waf-01
+waf-02
+waf-03
+
+# Forward / reverse proxies
+proxy-01
+proxy-02
+proxy-03
+proxy-04
+
+# SAN / storage fabric switches
+san-switch-01
+san-switch-02
+san-switch-03

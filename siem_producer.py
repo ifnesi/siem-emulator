@@ -7,6 +7,7 @@ Produces data from templates to Kafka topics with automatic Avro schema inferenc
 import sys
 import json
 import time
+import uuid
 import random
 import argparse
 import ipaddress
@@ -28,42 +29,7 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 class TemplateRenderer:
     """Renders Jinja2 templates with random-data helpers registered as globals."""
 
-    # Common ports and protocols
-    KNOWN_PORTS: list[int] = [
-        20,
-        21,
-        22,
-        23,
-        25,
-        53,
-        80,
-        110,
-        143,
-        443,
-        445,
-        3306,
-        3389,
-        5432,
-        8080,
-        8443,
-    ]
-    KNOWN_PROTOCOLS: list[str] = [
-        "HTTP",
-        "HTTPS",
-        "FTP",
-        "SSH",
-        "SMTP",
-        "DNS",
-        "TELNET",
-        "IMAP",
-        "POP3",
-        "SMB",
-        "MySQL",
-        "PostgreSQL",
-        "RDP",
-    ]
-
-    def __init__(self) -> None:
+    def __init__(self, data_dir: Path | None = None) -> None:
         self.counters: dict[str, int] = {}
         self.env = jinja2.Environment(
             autoescape=False,
@@ -74,16 +40,40 @@ class TemplateRenderer:
             "now": lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "unix_time_stamp": lambda max_ago: int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000),
             "ip": self._random_ip,
-            "ip_known_port": lambda: random.choice(self.KNOWN_PORTS),
-            "ip_known_protocol": lambda: random.choice(self.KNOWN_PROTOCOLS),
-            "randoms": lambda options: random.choice(options.split("|")),
+            "guid": lambda: str(uuid.uuid4()),
+            "randoms": self._randoms,
             "integer": random.randint,
             "random_string": self._random_string,
             "random_string_vocabulary": self._random_string_vocab,
             "counter": self._counter,
             "floating": self._floating,
             "regex": self._generate_from_regex,
+            "data": self._load_data(data_dir) if data_dir else {},
         })
+
+    @staticmethod
+    def _load_data(data_dir: Path) -> Dict[str, list[str]]:
+        """Load each file under data_dir as a list of stripped, non-empty,
+        non-comment lines. Lines starting with `#` (after stripping) are
+        ignored, so files can be self-documented. A file named `known_ports`
+        becomes `data.known_ports` in templates."""
+        if not data_dir.is_dir():
+            return {}
+        loaded: dict[str, list[str]] = {}
+        for path in sorted(data_dir.iterdir()):
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+            loaded[path.name] = [line for line in lines if line and not line.startswith("#")]
+        return loaded
+
+    @staticmethod
+    def _randoms(options):
+        """Pick a random element. Accepts a pipe-separated string (`"a|b|c"`)
+        or any sequence (e.g. `data.countries`)."""
+        if isinstance(options, str):
+            options = options.split("|")
+        return random.choice(options)
 
     def compile(self, source: str) -> jinja2.Template:
         """Compile a template source string once; reuse across renders."""
@@ -368,7 +358,7 @@ def main() -> None:
     with open(template_path, "r", encoding="utf-8") as f:
         template_content = f.read()
 
-    renderer = TemplateRenderer()
+    renderer = TemplateRenderer(data_dir=Path(args.templates_dir) / "data")
     template = renderer.compile(template_content)
 
     # Dry run mode - just generate and display data

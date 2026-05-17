@@ -1,16 +1,17 @@
+{% set custom_users = data.users + ["root", "admin"] * 10 %}
 {
   "timestamp":  {{ now() | tojson }},
-  "event_id":   {{ regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") | tojson }},
+  "event_id":   {{ guid() | tojson }},
   "sequence":   {{ counter("auth", 1, 1) }},
   "occurred_at_ms": {{ unix_time_stamp(60) }},
-  "user":       {{ randoms("alice|bob|carol|dave|root") | tojson }},
+  "user":       {{ randoms(custom_users) | tojson }},
   "action":     {{ randoms("login|login|login|logout|password_change|failed_login") | tojson }},
   "source": {
     "ip":      {{ ip("10.0.0.0/16") | tojson }},
     "port":    {{ integer(1024, 65535) }},
-    "country": {{ randoms("US|US|GB|DE|FR|JP|BR") | tojson }}
+    "country": {{ randoms(data.countries) | tojson }}
   },
-  "target_port": {{ randoms("22|443|3389|5432") | int }},
+  "target_port": {{ randoms(data.known_ports) | int }},
   "latency_ms":  {{ floating(0.5, 250.0, decimals=2) }},
-  "session_id":  {{ random_string_vocabulary(16, 24, "0123456789ABCDEF") | tojson }}
+  "session_id":  {{guid() | tojson}}
 }
