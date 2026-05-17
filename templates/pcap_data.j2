@@ -1,5 +1,5 @@
 {
-  "timestamp": {{ now() | tojson }},
+  "timestamp": {{ now() }},
   "capture_id": {{ random_string_vocabulary(12, 16, "0123456789abcdef") | tojson }},
   "frame_number": {{ integer(1, 999999) }},
   "frame_length": {{ integer(64, 1518) }},

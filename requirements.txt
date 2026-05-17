@@ -1,9 +1,9 @@
-attrs>=25.3.0
-Authlib>=1.6.0
-cachetools>=6.0.0
-confluent-kafka>=2.10.0
-httpx>=0.28.1
-pyyaml>=6.0.2
-fastavro>=1.12.2
+attrs>=26.1.0
+Authlib>=1.7.2
+cachetools>=7.1.1
+confluent-kafka>=2.14.0
 exrex>=0.12.0
-jinja2>=3.1
+fastavro>=1.12.2
+httpx>=0.28.1
+jinja2>=3.1.6
+pyyaml>=6.0.3

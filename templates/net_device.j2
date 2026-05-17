@@ -1,5 +1,5 @@
 {
-    "timestamp": {{ now() | tojson }},
+    "timestamp": {{ now() }},
     "flow_id": {{ random_string_vocabulary(16, 20, "0123456789abcdef") | tojson }},
     "device_name": {{ randoms(data.devices) | tojson }},
     "device_ip": {{ randoms("10.0.0.1|10.0.0.2|10.0.1.1|10.0.2.1|10.0.3.1|172.16.0.1|172.16.1.1") | tojson }},

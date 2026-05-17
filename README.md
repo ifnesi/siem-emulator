@@ -185,6 +185,7 @@ Optional Arguments:
   --kafka-config FILE   Kafka config file (default: ./kafka/config.properties)
   --registry-config FILE Schema Registry config (default: ./kafka/registry.properties)
   --templates-dir DIR   Templates directory (default: ./templates)
+  --namespace NS        Avro schema namespace (default: io.confluent.siem)
 
 Examples:
   # Dry run - preview generated data without Kafka
@@ -243,19 +244,22 @@ Templates are [Jinja2](https://jinja.palletsprojects.com/) files (`.j2`) that re
 - **String fields** use the built-in `tojson` filter — it provides the JSON quotes and escapes special characters: `{{ helper(...) | tojson }}`
 - **Numeric fields** render the raw value: `{{ helper(...) }}`
 
+**Exception — `now()` and `unix_time_stamp()`** emit a JSON-shaped marker on their own so the Avro schema inferrer can attach a `logicalType` to the field. Render them bare (no `| tojson`):
+
 ```jinja
 {
-  "ts":         {{ now() | tojson }},
-  "src_ip":     {{ ip("10.10.0.0/16") | tojson }},
-  "query":     {{ randoms("opt1|opt2|opt3") | tojson }},
-  "latency_ms": {{ integer(1, 40) }}
+  "ts":             {{ now() }},
+  "occurred_at_ms": {{ unix_time_stamp(60) }},
+  "src_ip":         {{ ip("10.10.0.0/16") | tojson }},
+  "query":          {{ randoms("opt1|opt2|opt3") | tojson }},
+  "latency_ms":     {{ integer(1, 40) }}
 }
 ```
 
 ### Supported Functions
 
-- `now()` - Current UTC timestamp (string)
-- `unix_time_stamp(N)` - Unix timestamp in **milliseconds**, randomly chosen between now and N seconds ago (long)
+- `now()` - Current UTC timestamp as an ISO-8601 string. The field's Avro schema gets `{"type": "string", "logicalType": "iso-8601-timestamp"}`. Render bare (no `| tojson`).
+- `unix_time_stamp(N)` - Unix timestamp in **milliseconds**, randomly chosen between now and N seconds ago. The field's Avro schema gets `{"type": "long", "logicalType": "timestamp-millis"}`. Render bare (no `| tojson`).
 - `ip("CIDR")` - Random IP from CIDR range (string)
 - `guid()` - Random UUID4 as a lowercase hyphenated string, e.g. `"550e8400-e29b-41d4-a716-446655440000"` (string). Use in place of a hand-rolled `regex("[0-9a-f]{8}-...")` for event/trace/correlation IDs.
 - `randoms(source)` - Random choice from `source`, which is either a pipe-separated string (`"a|b|c"`) or any sequence — typically one of the lists loaded from `templates/data/` and exposed as `data.<filename>` (e.g. `randoms(data.countries)`). Repeat values to bias the distribution: `"info|info|info|warning"`. Cast to a number with `| int` when emitting into a numeric field (e.g. `randoms(data.known_ports) | int`).
@@ -422,7 +426,7 @@ A richer template that exercises every helper. Save as `templates/auth_event.j2`
 
 ```jinja
 {
-  "timestamp":  {{ now() | tojson }},
+  "timestamp":  {{ now() }},
   "event_id":   {{ guid() | tojson }},
   "sequence":   {{ counter("auth", 1, 1) }},
   "occurred_at_ms": {{ unix_time_stamp(60) }},
@@ -480,6 +484,17 @@ Schema inference walks the rendered Python dict and maps each value:
 | `list`                                | `array`                  |
 
 If a field must be numeric, render it bare (no `tojson`). If it must be a `long`, use a value over the 32-bit range — `unix_time_stamp()` returns ms epoch and is automatically promoted.
+
+**Logical types.** A few helpers also annotate the schema with an Avro `logicalType`:
+
+| Helper                  | Avro field type                                                  |
+| ----------------------- | ---------------------------------------------------------------- |
+| `now()`                 | `{"type": "string", "logicalType": "iso-8601-timestamp"}`        |
+| `unix_time_stamp(N)`    | `{"type": "long", "logicalType": "timestamp-millis"}`            |
+
+These helpers emit a JSON-shaped marker (`{"__logicaltype_<name>__": <value>}`) that the renderer unwraps after parsing — the marker tells the schema inferrer which `logicalType` to attach, and the data going to Kafka is the bare value (string or long). Because they're already JSON, render them bare (`{{ now() }}`, `{{ unix_time_stamp(60) }}`) without `| tojson`.
+
+`iso-8601-timestamp` is a custom (non-standard) logical type — Avro readers that don't recognize it fall back to treating the field as a plain `string`, which is the desired behavior. `timestamp-millis` is part of the [Avro spec](https://avro.apache.org/docs/current/specification/#logical-types).
 
 ## Configuration
 

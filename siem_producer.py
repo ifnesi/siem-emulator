@@ -29,16 +29,26 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 class TemplateRenderer:
     """Renders Jinja2 templates with random-data helpers registered as globals."""
 
+    _LOGICALTYPE_PREFIX = "__logicaltype_"
+    _LOGICALTYPE_SUFFIX = "__"
+
     def __init__(self, data_dir: Path | None = None) -> None:
         self.counters: dict[str, int] = {}
+        self.logical_types: dict[str, str] = {}
         self.env = jinja2.Environment(
             autoescape=False,
             undefined=jinja2.StrictUndefined,
             keep_trailing_newline=False,
         )
         self.env.globals.update({
-            "now": lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "unix_time_stamp": lambda max_ago: int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000),
+            "now": lambda: (
+                f'{{"__logicaltype_iso-8601-timestamp__": '
+                f'"{datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}"}}'
+            ),
+            "unix_time_stamp": lambda max_ago: (
+                f'{{"__logicaltype_timestamp-millis__": '
+                f'{int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000)}}}'
+            ),
             "ip": self._random_ip,
             "guid": lambda: str(uuid.uuid4()),
             "randoms": self._randoms,
@@ -80,14 +90,40 @@ class TemplateRenderer:
         return self.env.from_string(source)
 
     def render(self, template: jinja2.Template) -> Dict[str, Any]:
-        """Render a compiled template and parse the result as JSON."""
+        """Render a compiled template and parse the result as JSON.
+
+        Helpers like `unix_time_stamp` emit a wrapper dict shaped
+        `{"__logicaltype_<name>__": <value>}` so the Avro schema inferrer can
+        annotate the field with the right `logicalType`. We unwrap those
+        markers here and record the field-to-logical-type mapping on
+        `self.logical_types`.
+        """
         rendered = template.render()
         try:
-            return json.loads(rendered)
+            data = json.loads(rendered)
         except json.JSONDecodeError as e:
             print(f"Error parsing rendered template: {e}", file=sys.stderr)
             print(f"Rendered content: {rendered}", file=sys.stderr)
             raise
+        return self._unwrap_logical_markers(data)
+
+    def _unwrap_logical_markers(self, obj: Any, parent_key: str = "") -> Any:
+        if isinstance(obj, dict):
+            if len(obj) == 1:
+                only_key = next(iter(obj))
+                if (
+                    only_key.startswith(self._LOGICALTYPE_PREFIX)
+                    and only_key.endswith(self._LOGICALTYPE_SUFFIX)
+                    and len(only_key) > len(self._LOGICALTYPE_PREFIX) + len(self._LOGICALTYPE_SUFFIX)
+                ):
+                    logical = only_key[len(self._LOGICALTYPE_PREFIX):-len(self._LOGICALTYPE_SUFFIX)]
+                    if parent_key:
+                        self.logical_types[parent_key] = logical
+                    return obj[only_key]
+            return {k: self._unwrap_logical_markers(v, parent_key=k) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self._unwrap_logical_markers(item, parent_key=parent_key) for item in obj]
+        return obj
 
     def _counter(self, name: str, start: int, step: int) -> int:
         current = self.counters.get(name, start)
@@ -148,12 +184,27 @@ def _snake_to_pascal(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_") if part) or "Nested"
 
 
+_LOGICAL_TYPE_PRIMITIVE: dict[str, str] = {
+    "timestamp-millis": "long",
+    "iso-8601-timestamp": "string",
+}
+
+
 def infer_avro_schema(
     data: Dict[str, Any],
     name: str,
+    namespace: str = "io.confluent.siem",
+    logical_types: dict[str, str] | None = None,
 ) -> str:
-    """Infer Avro schema from a data dictionary."""
+    """Infer Avro schema from a data dictionary.
 
+    `logical_types` maps field name -> Avro logical type (e.g.
+    `{"occurred_at_ms": "timestamp-millis"}`) and is populated by the
+    `TemplateRenderer` when it unwraps helper markers like
+    `{"__logicaltype_timestamp-millis__": ...}`.
+    """
+
+    logical_types = logical_types or {}
     used_names: set[str] = set()
 
     def _unique(base: str) -> str:
@@ -170,10 +221,22 @@ def infer_avro_schema(
         if isinstance(value, bool):
             return "boolean"
         if isinstance(value, int):
+            if field_name in logical_types:
+                logical = logical_types[field_name]
+                return {
+                    "type": _LOGICAL_TYPE_PRIMITIVE.get(logical, "long"),
+                    "logicalType": logical,
+                }
             return "long" if value > 2147483647 or value < -2147483648 else "int"
         if isinstance(value, float):
             return "double"
         if isinstance(value, str):
+            if field_name in logical_types:
+                logical = logical_types[field_name]
+                return {
+                    "type": _LOGICAL_TYPE_PRIMITIVE.get(logical, "string"),
+                    "logicalType": logical,
+                }
             return "string"
         if isinstance(value, dict):
             base_name = _snake_to_pascal(field_name) if field_name else "Nested"
@@ -199,7 +262,7 @@ def infer_avro_schema(
     schema: dict[str, Any] = {
         "type": "record",
         "name": _snake_to_pascal(name) + "Record",
-        "namespace": "com.example.siem",
+        "namespace": namespace,
         "fields": fields,
     }
 
@@ -340,6 +403,12 @@ def main() -> None:
         help="Templates directory",
     )
     parser.add_argument(
+        "-ns",
+        "--namespace",
+        default="io.confluent.siem",
+        help="Avro schema namespace (default: io.confluent.siem)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Generate and display data without producing to Kafka",
@@ -381,7 +450,12 @@ def main() -> None:
     # Generate several samples to infer schema — avoids pinning empty-list
     # fields to array<string> when later records would carry real items.
     sample_data = sample_for_schema(renderer=renderer, template=template)
-    avro_schema_str = infer_avro_schema(data=sample_data, name=args.template)
+    avro_schema_str = infer_avro_schema(
+        data=sample_data,
+        name=args.template,
+        namespace=args.namespace,
+        logical_types=renderer.logical_types,
+    )
 
     print(f"Inferred Avro Schema:\n{json.dumps(json.loads(avro_schema_str), indent=2)}\n")
 

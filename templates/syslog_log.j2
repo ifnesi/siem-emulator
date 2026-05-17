@@ -1,5 +1,5 @@
 {
-  "timestamp": {{ now() | tojson }},
+  "timestamp": {{ now() }},
   "hostname": {{ randoms("web-server-01|web-server-02|app-server-01|app-server-02|db-server-01|db-server-02|mail-server-01|dns-server-01|proxy-server-01|jump-host-01|k8s-master-01|k8s-worker-01|k8s-worker-02|jenkins-01|gitlab-01|monitoring-01") | tojson }},
   "ip_address": {{ randoms("10.10.1.10|10.10.1.20|10.10.2.10|10.10.2.20|10.10.3.10|10.10.3.20|172.16.0.10|172.16.1.10|192.168.1.10|192.168.2.10") | tojson }},
   "facility": {{ randoms("kern|user|mail|daemon|auth|syslog|lpr|news|uucp|cron|authpriv|ftp|local0|local1|local2|local3|local4|local5|local6|local7") | tojson }},

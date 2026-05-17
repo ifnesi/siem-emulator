@@ -1,6 +1,6 @@
 {% set custom_users = data.users + ["root", "admin"] * 10 %}
 {
-  "timestamp":  {{ now() | tojson }},
+  "timestamp":  {{ now() }},
   "event_id":   {{ guid() | tojson }},
   "sequence":   {{ counter("auth", 1, 1) }},
   "occurred_at_ms": {{ unix_time_stamp(60) }},
@@ -13,5 +13,5 @@
   },
   "target_port": {{ randoms(data.known_ports) | int }},
   "latency_ms":  {{ floating(0.5, 250.0, decimals=2) }},
-  "session_id":  {{guid() | tojson}}
+  "session_id":  {{ guid() | tojson }}
 }

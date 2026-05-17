@@ -1,5 +1,5 @@
 {
-  "timestamp": {{ now() | tojson }},
+  "timestamp": {{ now() }},
   "event_id": {{ random_string_vocabulary(8, 12, "0123456789abcdef") | tojson }},
   "hostname": {{ randoms("firewall-01.corp.local|firewall-02.corp.local|firewall-03.corp.local|fw-dmz-01|fw-dmz-02|fw-edge-01|fw-edge-02|asa-primary|asa-secondary|palo-alto-01|palo-alto-02|fortigate-01|checkpoint-gw01") | tojson }},
   "device_type": {{ randoms("firewall|firewall|firewall|ids|ips|waf|proxy") | tojson }},
