@@ -1,6 +1,6 @@
 # SIEM Data Emulator with Python and Confluent Kafka
 
-Generate realistic SIEM (Security Information and Event Management) data and produce it to Confluent Kafka with Avro serialization using a custom Python producer.
+Generate realistic SIEM (Security Information and Event Management) data and produce it to Confluent Kafka using a custom Python producer. Supports both **Avro** serialization (with automatic schema inference and Schema Registry integration) for structured JSON templates, and **raw UTF-8 text** (via `--no-schema`) for non-structured payloads like NGINX access logs or plain syslog lines.
 
 ## Features
 
@@ -165,6 +165,20 @@ count by application
 traffic by geo_src_country → geo_dst_country
 ```
 
+### 6. **nginx_access_log** - NGINX Access Logs (raw text, `--no-schema`)
+NGINX combined log format with request time, produced as raw UTF-8 lines (no Avro, no Schema Registry). Use with `--no-schema`.
+
+**Example output:**
+```
+47.29.190.187 - - [18/May/2026:21:38:03 +0000] "GET /contact HTTP/2.0" 200 34049 "-" "curl/7.88.1" "0.734"
+```
+
+**Fields per line:** remote IP, identity, user, `[local time]`, `"method path HTTP/version"`, status, body bytes, `"referer"`, `"user-agent"`, `"request time"`.
+
+```bash
+python siem_producer.py nginx_access_log -t nginx_access_log --no-schema
+```
+
 ## Usage
 
 ```bash
@@ -194,6 +208,10 @@ Optional Arguments:
                                are registered as-is with Schema Registry.
   --inferred-schema            Print the schema that would be registered and exit
                                (no Kafka connection, no records produced).
+  --no-schema                  Treat the rendered template as raw UTF-8 text
+                               (e.g. NGINX access logs, syslog lines). Skips Avro
+                               serialization and Schema Registry entirely.
+                               Mutually exclusive with --schema, --inferred-schema, -k/--key.
   --dry-run                    Generate and display data without producing to Kafka
   --kafka-config FILE          Kafka config file (default: ./kafka/config.properties)
   --registry-config FILE       Schema Registry config (default: ./kafka/registry.properties)
@@ -226,6 +244,9 @@ Examples:
 
   # Register and produce against a hand-written / pre-existing schema file
   python siem_producer.py dns_log -t dns_log --schema schemas/dns_log.avsc
+
+  # Raw text payload (no Avro, no Schema Registry) — e.g. NGINX access logs
+  python siem_producer.py nginx_access_log -t nginx_access_log --no-schema
 ```
 
 ### Message Keys
@@ -317,6 +338,23 @@ Handy for:
 - Reviewing a schema change before it hits Schema Registry.
 
 Combining `--inferred-schema` with `--schema` will print the file you supplied rather than an inferred one — useful as a quick syntax check that the file is valid JSON before you try to produce against it.
+
+### Raw-Text Payloads (`--no-schema`)
+
+Use `--no-schema` for templates whose output is not a JSON record — e.g. NGINX access logs, plain syslog lines, CSV rows. The rendered template is encoded as UTF-8 and produced directly to Kafka with no Avro serialization, no Schema Registry call, and no schema-id framing.
+
+```bash
+# Preview a raw NGINX access log
+python siem_producer.py nginx_access_log --no-schema --dry-run -n 3
+
+# Produce to Kafka
+python siem_producer.py nginx_access_log -t nginx_access_log --no-schema
+```
+
+- The template renders to a single string per record; nothing is parsed as JSON, so it can contain any text.
+- The `strftime(fmt)` helper is available for arbitrary timestamp formats (e.g. `strftime('%d/%b/%Y:%H:%M:%S +0000')` for NGINX).
+- `--no-schema` is mutually exclusive with `--schema`, `--inferred-schema`, and `-k/--key` (no fields to extract a key from).
+- `--registry-config` is not read in this mode.
 
 ## How It Works
 
@@ -420,7 +458,7 @@ templates/data/
 ├── endpoints
 ├── interfaces
 ├── known_ports
-├── known_protocols
+├── users_agents
 └── users
 ```
 
@@ -683,12 +721,21 @@ docker compose down -v
 ├── kafka/
 │   ├── config.properties      # Kafka connection config
 │   └── registry.properties    # Schema Registry config
+├── schemas/                   # Hand-written Avro schemas (used via --schema)
+│   ├── auth_event.avsc
+│   ├── dns_log.avsc
+│   ├── net_device.avsc
+│   ├── pcap_data.avsc
+│   ├── siem_log.avsc
+│   └── syslog_log.avsc
 └── templates/                 # SIEM data templates
+    ├── auth_event.j2
     ├── dns_log.j2
     ├── siem_log.j2
     ├── net_device.j2
     ├── syslog_log.j2
     ├── pcap_data.j2
+    ├── nginx_access_log.j2    # raw text (use with --no-schema)
     └── data/                  # Plain-text lists, one value per line
         ├── countries          #   → data.countries
         ├── devices            #   → data.devices
@@ -697,6 +744,7 @@ docker compose down -v
         ├── interfaces         #   → data.interfaces
         ├── known_ports        #   → data.known_ports
         ├── known_protocols    #   → data.known_protocols
+        ├── user_agents        #   → data.user_agents
         └── users              #   → data.users
 ```
 

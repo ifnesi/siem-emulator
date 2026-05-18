@@ -1,0 +1,11 @@
+{% set client_ip    = ip(randoms('47.29.0.0/16|8.8.0.0/16|34.0.0.0/8|52.0.0.0/8|172.217.0.0/16|151.101.0.0/16|104.16.0.0/12|185.60.0.0/16|31.13.0.0/16|13.32.0.0/15|199.232.0.0/16')) -%}
+{% set ts           = strftime('%d/%b/%Y:%H:%M:%S +0000') -%}
+{% set method       = randoms('GET|GET|GET|GET|GET|POST|POST|PUT|PATCH|DELETE|HEAD|OPTIONS') -%}
+{% set path         = randoms('/|/?p=1|/?p=2|/index.html|/api/users|/api/users/42|/api/v1/products|/api/v1/products?category=tech&sort=price|/api/v1/orders|/api/v1/sessions|/login|/logout|/signup|/favicon.ico|/robots.txt|/sitemap.xml|/static/css/main.css|/static/js/app.js|/static/img/logo.png|/admin|/admin/login|/wp-admin/admin-ajax.php|/wp-login.php|/.env|/.git/config|/phpmyadmin|/blog/2024/01/post-title|/contact|/about|/search?q=kubernetes|/search?q=observability') -%}
+{% set version      = randoms('1.0|1.1|1.1|1.1|1.1|2.0|2.0|2.0') -%}
+{% set status       = randoms('200|200|200|200|200|200|201|204|301|302|304|400|401|403|404|404|429|500|502|503') -%}
+{% set size         = integer(100, 50000) -%}
+{% set referer      = randoms('https://www.google.com/|https://www.google.com/search?q=example|https://twitter.com/share|https://github.com/explore|https://news.ycombinator.com/|https://www.reddit.com/|https://stackoverflow.com/questions|https://t.co/abc123|https://www.bing.com/search?q=test|https://duckduckgo.com/|-|-|-|-|-|-') -%}
+{% set user_agent   = randoms(data.user_agents) -%}
+{% set request_time = floating(0.001, 5.0, 3) -%}
+{{ client_ip }} - - [{{ ts }}] "{{ method }} {{ path }} HTTP/{{ version }}" {{ status }} {{ size }} "{{ referer }}" "{{ user_agent }}" "{{ request_time }}"

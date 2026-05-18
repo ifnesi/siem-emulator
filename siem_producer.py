@@ -56,6 +56,10 @@ class TemplateRenderer:
                 f'{{"__logicaltype_timestamp-millis__": '
                 f'{int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000)}}}'
             ),
+            # Plain UTC strftime — for raw-text templates (e.g. NGINX, syslog
+            # lines) that need an arbitrary formatted timestamp rather than the
+            # JSON-wrapped logical-type markers emitted by `now()`.
+            "strftime": lambda fmt: datetime.now(timezone.utc).strftime(fmt),
             "ip": self._random_ip,
             "guid": lambda: str(uuid.uuid4()),
             "randoms": self._randoms,
@@ -97,6 +101,12 @@ class TemplateRenderer:
     def compile(self, source: str) -> jinja2.Template:
         """Compile a template source string once; reuse across renders."""
         return self.env.from_string(source)
+
+    def render_raw(self, template: jinja2.Template) -> str:
+        """Render a compiled template and return the raw string, with no JSON
+        parsing or logical-type unwrapping. Used by `--no-schema` mode for
+        non-structured payloads like NGINX access logs or syslog lines."""
+        return template.render()
 
     def render(self, template: jinja2.Template) -> Dict[str, Any]:
         """Render a compiled template and parse the result as JSON.
@@ -473,8 +483,31 @@ def main() -> None:
         action="store_true",
         help="Display the inferred AVRO Schema",
     )
+    parser.add_argument(
+        "--no-schema",
+        action="store_true",
+        help=(
+            "Treat the rendered template as raw UTF-8 text (e.g. NGINX access "
+            "logs, syslog lines) instead of JSON. Skips Avro serialization and "
+            "Schema Registry entirely. Mutually exclusive with --schema, "
+            "--inferred-schema, and -k/--key."
+        ),
+    )
 
     args = parser.parse_args()
+
+    if args.no_schema:
+        conflicts = []
+        if args.schema:
+            conflicts.append("--schema")
+        if args.inferred_schema:
+            conflicts.append("--inferred-schema")
+        if args.key:
+            conflicts.append("-k/--key")
+        if conflicts:
+            parser.error(
+                f"--no-schema cannot be combined with: {', '.join(conflicts)}"
+            )
 
     if not (args.dry_run or args.inferred_schema) and not args.topic:
         parser.error("the following arguments are required: -t/--topic (not required with --dry-run or --inferred-schema)")
@@ -490,93 +523,105 @@ def main() -> None:
     renderer = TemplateRenderer(data_dir=Path(args.templates_dir) / "data")
     template = renderer.compile(template_content)
 
-    # Generate several samples to infer schema — avoids pinning empty-list
-    # fields to array<string> when later records would carry real items.
-    sample_data = sample_for_schema(renderer=renderer, template=template)
+    sample_data: Dict[str, Any] = {}
+    avro_schema_str = ""
 
-    if args.schema:
-        schema_path = Path(args.schema)
-        if not schema_path.exists():
-            logger.error("Schema file not found: %s", schema_path)
-            sys.exit(1)
-        with open(schema_path, "r", encoding="utf-8") as f:
-            raw_schema = f.read()
-        try:
-            avro_schema_str = json.dumps(json.loads(raw_schema))
-        except json.JSONDecodeError as e:
-            logger.error("Invalid JSON in schema file %s: %s", schema_path, e)
-            sys.exit(1)
-    else:
-        avro_schema_str = infer_avro_schema(
-            data=sample_data,
-            name=args.template,
-            namespace=args.namespace,
-            logical_types=renderer.logical_types,
-        )
+    if not args.no_schema:
+        # Generate several samples to infer schema — avoids pinning empty-list
+        # fields to array<string> when later records would carry real items.
+        sample_data = sample_for_schema(renderer=renderer, template=template)
 
-    if args.inferred_schema:
-        source = f"file {args.schema}" if args.schema else f"template {args.template}"
-        logger.info("Schema from %s:", source)
-        print(json.dumps(json.loads(avro_schema_str), indent=2))
-        print()
+        if args.schema:
+            schema_path = Path(args.schema)
+            if not schema_path.exists():
+                logger.error("Schema file not found: %s", schema_path)
+                sys.exit(1)
+            with open(schema_path, "r", encoding="utf-8") as f:
+                raw_schema = f.read()
+            try:
+                avro_schema_str = json.dumps(json.loads(raw_schema))
+            except json.JSONDecodeError as e:
+                logger.error("Invalid JSON in schema file %s: %s", schema_path, e)
+                sys.exit(1)
+        else:
+            avro_schema_str = infer_avro_schema(
+                data=sample_data,
+                name=args.template,
+                namespace=args.namespace,
+                logical_types=renderer.logical_types,
+            )
+
+        if args.inferred_schema:
+            source = f"file {args.schema}" if args.schema else f"template {args.template}"
+            logger.info("Schema from %s:", source)
+            print(json.dumps(json.loads(avro_schema_str), indent=2))
+            print()
 
     # Dry run mode - just generate and display data
     if args.dry_run:
         num_samples = args.num_records if args.num_records > 0 else 10
+        mode_label = "raw text" if args.no_schema else "sample"
         logger.info(
-            f"Dry run mode - generating {num_samples} sample records from "
+            f"Dry run mode - generating {num_samples} {mode_label} records from "
             f"template '{args.template}':"
         )
         for i in range(num_samples):
-            data = renderer.render(template=template)
             logger.info(f"Record {i + 1}:")
-            print(json.dumps(data, indent=2))
-            print("-" * 12)
-        
+            if args.no_schema:
+                print(renderer.render_raw(template=template))
+            else:
+                print(json.dumps(renderer.render(template=template), indent=2))
+            print()
+
     if args.dry_run or args.inferred_schema:
         sys.exit(0)
 
     kafka_config = load_config(args.kafka_config)
-    registry_config = load_config(args.registry_config)
 
-    if args.key is not None:
-        if args.key not in sample_data:
-            parser.error(
-                f"--key '{args.key}' not found in rendered template. "
-                f"Available top-level fields: {sorted(sample_data.keys())}"
-            )
-        sample_value = sample_data[args.key]
-        if not isinstance(sample_value, (str, int, float, bool)):
-            parser.error(
-                f"--key '{args.key}' must reference a scalar field "
-                f"(string, int, float, bool); got {type(sample_value).__name__}"
+    avro_serializer = None
+    if not args.no_schema:
+        registry_config = load_config(args.registry_config)
+
+        if args.key is not None:
+            if args.key not in sample_data:
+                parser.error(
+                    f"--key '{args.key}' not found in rendered template. "
+                    f"Available top-level fields: {sorted(sample_data.keys())}"
+                )
+            sample_value = sample_data[args.key]
+            if not isinstance(sample_value, (str, int, float, bool)):
+                parser.error(
+                    f"--key '{args.key}' must reference a scalar field "
+                    f"(string, int, float, bool); got {type(sample_value).__name__}"
+                )
+
+        if not args.schema:
+            logger.info(
+                "Inferred Avro Schema:\n%s",
+                json.dumps(json.loads(avro_schema_str), indent=2),
             )
 
-    if not args.schema:
-        logger.info(
-            "Inferred Avro Schema:\n%s",
-            json.dumps(json.loads(avro_schema_str), indent=2),
+        schema_registry_conf = {
+            "url": registry_config.get("schemaRegistryURL", "http://localhost:8081")
+        }
+        if registry_config.get("basic.auth.user.info"):
+            schema_registry_conf["basic.auth.user.info"] = registry_config["basic.auth.user.info"]
+
+        schema_registry_client = SchemaRegistryClient(schema_registry_conf)
+        schema_id_serializer = (
+            header_schema_id_serializer
+            if args.schema_id_location == "headers"
+            else prefix_schema_id_serializer
         )
-
-    schema_registry_conf = {
-        "url": registry_config.get("schemaRegistryURL", "http://localhost:8081")
-    }
-    if registry_config.get("basic.auth.user.info"):
-        schema_registry_conf["basic.auth.user.info"] = registry_config["basic.auth.user.info"]
-
-    schema_registry_client = SchemaRegistryClient(schema_registry_conf)
-    schema_id_serializer = (
-        header_schema_id_serializer
-        if args.schema_id_location == "headers"
-        else prefix_schema_id_serializer
-    )
-    avro_serializer = AvroSerializer(
-        schema_registry_client,
-        avro_schema_str,
-        lambda obj, ctx: obj,  # obj is already a dict
-        conf={"schema.id.serializer": schema_id_serializer},
-    )
-    logger.info("Schema ID location: %s", args.schema_id_location)
+        avro_serializer = AvroSerializer(
+            schema_registry_client,
+            avro_schema_str,
+            lambda obj, ctx: obj,  # obj is already a dict
+            conf={"schema.id.serializer": schema_id_serializer},
+        )
+        logger.info("Schema ID location: %s", args.schema_id_location)
+    else:
+        logger.info("Schema mode: --no-schema (raw UTF-8, no Schema Registry)")
 
     logger.info("Checking/creating topic '%s'...", args.topic)
     create_topic_if_not_exists(kafka_config, topic=args.topic, partitions=args.partitions)
@@ -606,33 +651,43 @@ def main() -> None:
                 # populates the passed headers list with the schema-id entry,
                 # which we then forward to producer.produce(). For body
                 # (prefix) mode the list stays empty and is harmless.
-                data = renderer.render(template=template)
                 headers: list = []
-                try:
-                    serialized_value = avro_serializer(
-                        data,
-                        SerializationContext(args.topic, MessageField.VALUE, headers),
-                    )
-                except Exception as e:
-                    logger.error("Error serializing message: %s", e)
-                    continue
-
-                # Per-record key validation. Startup only validates the first
-                # sample; a template with conditional fields could omit the key
-                # field on later renders, which would otherwise silently
-                # produce the string "None" as the partition key.
                 message_key = None
-                if args.key:
-                    key_value = data.get(args.key)
-                    if not isinstance(key_value, (str, int, float, bool)):
-                        logger.error(
-                            "Key field '%s' is missing or non-scalar in this "
-                            "record (got %s); skipping",
-                            args.key,
-                            type(key_value).__name__,
-                        )
+
+                if args.no_schema:
+                    try:
+                        serialized_value = renderer.render_raw(
+                            template=template
+                        ).encode("utf-8")
+                    except Exception as e:
+                        logger.error("Error rendering template: %s", e)
                         continue
-                    message_key = str(key_value).encode("utf-8")
+                else:
+                    data = renderer.render(template=template)
+                    try:
+                        serialized_value = avro_serializer(
+                            data,
+                            SerializationContext(args.topic, MessageField.VALUE, headers),
+                        )
+                    except Exception as e:
+                        logger.error("Error serializing message: %s", e)
+                        continue
+
+                    # Per-record key validation. Startup only validates the first
+                    # sample; a template with conditional fields could omit the key
+                    # field on later renders, which would otherwise silently
+                    # produce the string "None" as the partition key.
+                    if args.key:
+                        key_value = data.get(args.key)
+                        if not isinstance(key_value, (str, int, float, bool)):
+                            logger.error(
+                                "Key field '%s' is missing or non-scalar in this "
+                                "record (got %s); skipping",
+                                args.key,
+                                type(key_value).__name__,
+                            )
+                            continue
+                        message_key = str(key_value).encode("utf-8")
 
                 # Produce, retrying on BufferError so a transient full queue
                 # doesn't silently drop records. Drop after MAX_RETRIES so a
