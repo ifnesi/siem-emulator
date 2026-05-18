@@ -89,6 +89,16 @@ services:
       CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
       CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
       CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+    command: 
+      - bash 
+      - -c 
+      - |
+        echo "Installing Connector"
+        confluent-hub install --no-prompt splunk/kafka-connect-splunk:$SPLUNK_SINK_CONNECTOR
+        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:$ELASTIC_SINK_CONNECTOR
+        echo "Launching Kafka Connect worker"
+        /etc/confluent/docker/run & 
+        sleep infinity
 
   prometheus:
     image: confluentinc/cp-enterprise-prometheus:${CP_PROMETHEUS}
