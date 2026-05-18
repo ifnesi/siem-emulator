@@ -187,7 +187,13 @@ Optional Arguments:
                                Ignored if the topic already exists.
   -s, --schema-id-location LOC Where to put the Avro schema ID — `headers` (default,
                                modern) or `body` (legacy 5-byte magic-byte framing).
-  -ns, --namespace NS          Avro schema namespace (default: io.confluent.siem)
+  -ns, --namespace NS          Avro schema namespace (default: io.confluent.siem).
+                               Ignored when --schema is set.
+  --schema FILE                Use an existing Avro schema (JSON file) instead of
+                               inferring one from the template. The file's contents
+                               are registered as-is with Schema Registry.
+  --inferred-schema            Print the schema that would be registered and exit
+                               (no Kafka connection, no records produced).
   --dry-run                    Generate and display data without producing to Kafka
   --kafka-config FILE          Kafka config file (default: ./kafka/config.properties)
   --registry-config FILE       Schema Registry config (default: ./kafka/registry.properties)
@@ -214,6 +220,12 @@ Examples:
 
   # Custom partition count and legacy schema-ID body framing
   python siem_producer.py dns_log -t dns_log -p 12 -s body
+
+  # Preview the inferred schema and exit (no Kafka connection needed)
+  python siem_producer.py dns_log --inferred-schema
+
+  # Register and produce against a hand-written / pre-existing schema file
+  python siem_producer.py dns_log -t dns_log --schema schemas/dns_log.avsc
 ```
 
 ### Message Keys
@@ -277,6 +289,34 @@ Perfect for:
 - Verifying data format
 - Debugging template syntax
 - Generating sample data for documentation
+
+### Using an Existing Schema
+
+By default the producer infers the Avro schema from a few rendered samples (see [How It Works](#how-it-works)). Use `--schema PATH` to skip inference and register a hand-written / version-controlled schema instead:
+
+```bash
+python siem_producer.py dns_log -t dns_log --schema schemas/dns_log.avsc
+```
+
+- The file must be a valid Avro schema in JSON form; it is registered with Schema Registry **as-is** (no normalisation beyond `json.loads` / `json.dumps`).
+- The rendered records must conform to the schema — fields the schema requires must be produced by the template, and types must match.
+- `--namespace` / `-ns` is ignored in this mode (the namespace already lives in the schema file).
+- Useful when you need a stable schema across environments, want to control naming/defaults/docs that inference doesn't produce, or are evolving a schema by hand to manage BACKWARD compatibility.
+
+### Inspecting the Inferred Schema
+
+Use `--inferred-schema` to print the schema the producer would register and exit — no Kafka or Schema Registry connection is made, and `-t/--topic` is not required:
+
+```bash
+python siem_producer.py dns_log --inferred-schema
+```
+
+Handy for:
+- Bootstrapping a `--schema` file from a template (pipe the output to `schemas/<name>.avsc` and edit from there).
+- Verifying which fields picked up logical types (`timestamp-millis`, `iso-8601-timestamp`) from `now()` / `unix_time_stamp()`.
+- Reviewing a schema change before it hits Schema Registry.
+
+Combining `--inferred-schema` with `--schema` will print the file you supplied rather than an inferred one — useful as a quick syntax check that the file is valid JSON before you try to produce against it.
 
 ## How It Works
 

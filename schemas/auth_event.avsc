@@ -1,0 +1,70 @@
+{
+   "type": "record",
+   "name": "AuthEventRecord",
+   "namespace": "io.confluent.siem",
+   "fields": [
+      {
+         "name": "timestamp",
+         "type": {
+            "type": "string",
+            "logicalType": "iso-8601-timestamp"
+         }
+      },
+      {
+         "name": "event_id",
+         "type": "string"
+      },
+      {
+         "name": "sequence",
+         "type": "long"
+      },
+      {
+         "name": "occurred_at_ms",
+         "type": {
+            "type": "long",
+            "logicalType": "timestamp-millis"
+         }
+      },
+      {
+         "name": "user",
+         "type": "string"
+      },
+      {
+         "name": "action",
+         "type": "string"
+      },
+      {
+         "name": "source",
+         "type": {
+            "type": "record",
+            "name": "Source",
+            "fields": [
+               {
+                  "name": "ip",
+                  "type": "string"
+               },
+               {
+                  "name": "port",
+                  "type": "int"
+               },
+               {
+                  "name": "country",
+                  "type": "string"
+               }
+            ]
+         }
+      },
+      {
+         "name": "target_port",
+         "type": "int"
+      },
+      {
+         "name": "latency_ms",
+         "type": "double"
+      },
+      {
+         "name": "session_id",
+         "type": "string"
+      }
+   ]
+}

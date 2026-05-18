@@ -1,0 +1,141 @@
+{
+  "type": "record",
+  "name": "NetDeviceRecord",
+  "namespace": "io.confluent.siem",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "string",
+        "logicalType": "iso-8601-timestamp"
+      }
+    },
+    {
+      "name": "flow_id",
+      "type": "string"
+    },
+    {
+      "name": "device_name",
+      "type": "string"
+    },
+    {
+      "name": "device_ip",
+      "type": "string"
+    },
+    {
+      "name": "interface_in",
+      "type": "string"
+    },
+    {
+      "name": "interface_out",
+      "type": "string"
+    },
+    {
+      "name": "vlan_id",
+      "type": "int"
+    },
+    {
+      "name": "vlan_name",
+      "type": "string"
+    },
+    {
+      "name": "src_ip",
+      "type": "string"
+    },
+    {
+      "name": "dst_ip",
+      "type": "string"
+    },
+    {
+      "name": "src_port",
+      "type": "int"
+    },
+    {
+      "name": "dst_port",
+      "type": "int"
+    },
+    {
+      "name": "protocol",
+      "type": "int"
+    },
+    {
+      "name": "protocol_name",
+      "type": "string"
+    },
+    {
+      "name": "tcp_flags",
+      "type": "string"
+    },
+    {
+      "name": "tos",
+      "type": "int"
+    },
+    {
+      "name": "bytes_in",
+      "type": "int"
+    },
+    {
+      "name": "bytes_out",
+      "type": "int"
+    },
+    {
+      "name": "packets_in",
+      "type": "int"
+    },
+    {
+      "name": "packets_out",
+      "type": "int"
+    },
+    {
+      "name": "flow_start_time",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "flow_end_time",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "flow_duration",
+      "type": "int"
+    },
+    {
+      "name": "src_as",
+      "type": "int"
+    },
+    {
+      "name": "dst_as",
+      "type": "int"
+    },
+    {
+      "name": "src_mask",
+      "type": "int"
+    },
+    {
+      "name": "dst_mask",
+      "type": "int"
+    },
+    {
+      "name": "direction",
+      "type": "string"
+    },
+    {
+      "name": "sampling_rate",
+      "type": "int"
+    },
+    {
+      "name": "application",
+      "type": "string"
+    },
+    {
+      "name": "application_category",
+      "type": "string"
+    }
+  ]
+}
+

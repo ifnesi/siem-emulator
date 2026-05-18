@@ -1,0 +1,129 @@
+{
+  "type": "record",
+  "name": "SiemLogRecord",
+  "namespace": "io.confluent.siem",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "string",
+        "logicalType": "iso-8601-timestamp"
+      }
+    },
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "hostname",
+      "type": "string"
+    },
+    {
+      "name": "device_type",
+      "type": "string"
+    },
+    {
+      "name": "severity",
+      "type": "string"
+    },
+    {
+      "name": "action",
+      "type": "string"
+    },
+    {
+      "name": "protocol",
+      "type": "string"
+    },
+    {
+      "name": "access_group",
+      "type": "string"
+    },
+    {
+      "name": "rule_name",
+      "type": "string"
+    },
+    {
+      "name": "threat_category",
+      "type": "string"
+    },
+    {
+      "name": "source",
+      "type": {
+        "type": "record",
+        "name": "Source",
+        "fields": [
+          {
+            "name": "ip",
+            "type": "string"
+          },
+          {
+            "name": "port",
+            "type": "int"
+          },
+          {
+            "name": "zone",
+            "type": "string"
+          },
+          {
+            "name": "country",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "destination",
+      "type": {
+        "type": "record",
+        "name": "Destination",
+        "fields": [
+          {
+            "name": "ip",
+            "type": "string"
+          },
+          {
+            "name": "port",
+            "type": "int"
+          },
+          {
+            "name": "zone",
+            "type": "string"
+          },
+          {
+            "name": "country",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bytes_sent",
+      "type": "int"
+    },
+    {
+      "name": "bytes_received",
+      "type": "int"
+    },
+    {
+      "name": "packets_sent",
+      "type": "int"
+    },
+    {
+      "name": "packets_received",
+      "type": "int"
+    },
+    {
+      "name": "session_duration",
+      "type": "int"
+    },
+    {
+      "name": "application",
+      "type": "string"
+    },
+    {
+      "name": "user",
+      "type": "string"
+    }
+  ]
+}
+

@@ -1,0 +1,67 @@
+{
+  "type": "record",
+  "name": "DnsLogRecord",
+  "namespace": "io.confluent.siem",
+  "fields": [
+    {
+      "name": "ts",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "event_type",
+      "type": "string"
+    },
+    {
+      "name": "src_ip",
+      "type": "string"
+    },
+    {
+      "name": "dst_ip",
+      "type": "string"
+    },
+    {
+      "name": "query",
+      "type": "string"
+    },
+    {
+      "name": "qtype",
+      "type": "string"
+    },
+    {
+      "name": "rcode",
+      "type": "string"
+    },
+    {
+      "name": "latency_ms",
+      "type": "int"
+    },
+    {
+      "name": "query_class",
+      "type": "string"
+    },
+    {
+      "name": "protocol",
+      "type": "string"
+    },
+    {
+      "name": "dns_flags",
+      "type": "string"
+    },
+    {
+      "name": "answer_count",
+      "type": "int"
+    },
+    {
+      "name": "authority_count",
+      "type": "int"
+    },
+    {
+      "name": "additional_count",
+      "type": "int"
+    }
+  ]
+}
+

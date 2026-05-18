@@ -1,0 +1,159 @@
+{
+  "type": "record",
+  "name": "PcapDataRecord",
+  "namespace": "io.confluent.siem",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "string",
+        "logicalType": "iso-8601-timestamp"
+      }
+    },
+    {
+      "name": "capture_id",
+      "type": "string"
+    },
+    {
+      "name": "frame_number",
+      "type": "int"
+    },
+    {
+      "name": "frame_length",
+      "type": "int"
+    },
+    {
+      "name": "capture_interface",
+      "type": "string"
+    },
+    {
+      "name": "src_ip",
+      "type": "string"
+    },
+    {
+      "name": "dst_ip",
+      "type": "string"
+    },
+    {
+      "name": "src_port",
+      "type": "int"
+    },
+    {
+      "name": "dst_port",
+      "type": "int"
+    },
+    {
+      "name": "protocol",
+      "type": "string"
+    },
+    {
+      "name": "protocol_number",
+      "type": "int"
+    },
+    {
+      "name": "ip_version",
+      "type": "int"
+    },
+    {
+      "name": "ttl",
+      "type": "int"
+    },
+    {
+      "name": "ip_flags",
+      "type": "string"
+    },
+    {
+      "name": "fragment_offset",
+      "type": "int"
+    },
+    {
+      "name": "tcp_flags",
+      "type": "string"
+    },
+    {
+      "name": "tcp_seq",
+      "type": "int"
+    },
+    {
+      "name": "tcp_ack",
+      "type": "int"
+    },
+    {
+      "name": "tcp_window_size",
+      "type": "int"
+    },
+    {
+      "name": "bytes_sent",
+      "type": "int"
+    },
+    {
+      "name": "packets_sent",
+      "type": "int"
+    },
+    {
+      "name": "src_mac",
+      "type": "string"
+    },
+    {
+      "name": "dst_mac",
+      "type": "string"
+    },
+    {
+      "name": "vlan_id",
+      "type": "int"
+    },
+    {
+      "name": "gateway",
+      "type": "string"
+    },
+    {
+      "name": "src_hostname",
+      "type": "string"
+    },
+    {
+      "name": "dst_hostname",
+      "type": "string"
+    },
+    {
+      "name": "application",
+      "type": "string"
+    },
+    {
+      "name": "application_category",
+      "type": "string"
+    },
+    {
+      "name": "connection_state",
+      "type": "string"
+    },
+    {
+      "name": "direction",
+      "type": "string"
+    },
+    {
+      "name": "geo_src_country",
+      "type": "string"
+    },
+    {
+      "name": "geo_dst_country",
+      "type": "string"
+    },
+    {
+      "name": "latency_ms",
+      "type": "int"
+    },
+    {
+      "name": "retransmissions",
+      "type": "int"
+    },
+    {
+      "name": "packet_loss",
+      "type": "int"
+    },
+    {
+      "name": "jitter_ms",
+      "type": "int"
+    }
+  ]
+}
+

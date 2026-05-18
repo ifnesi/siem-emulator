@@ -116,8 +116,10 @@ for i in "${!TEMPLATES[@]}"; do
         --registry-config "$REGISTRY_CONFIG" \
         --templates-dir "$TEMPLATES_DIR" \
         --namespace "$NAMESPACE" \
+        --schema "./schemas/${tpl}.avsc" \
         > >(while IFS= read -r line; do printf '[%s] %s\n' "$tpl" "$line"; done) \
         2>&1 &
+    echo ""
     sleep 2
     PIDS+=($!)
 done
