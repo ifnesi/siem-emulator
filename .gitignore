@@ -24,4 +24,7 @@ Thumbs.db
 # Logs
 *.log
 
-# Made with Bob
+# Kafka Config files
+kafka/
+!kafka/config.properties
+!kafka/registry.properties
