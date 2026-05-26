@@ -127,7 +127,48 @@ Standard syslog messages from servers and infrastructure.
 
 **Use Cases:** System monitoring, troubleshooting, audit logging, compliance
 
-### 5. **pcap_data** - Network Packet Capture (37 fields) 🆕
+### 5. **iot_device** - IoT Sensor Telemetry (13 fields) 🆕
+Realistic IoT device telemetry with stateful sensor readings that drift gradually over time using state pools.
+
+**Key Fields:**
+- `device_id` - IOT-DEV-001, IOT-DEV-002, etc.
+- `location` - Building and floor (e.g., "Building 1 - Floor A")
+- `firmware_version` - 1.0.0, 1.0.1, 1.1.0, 2.0.0, etc.
+- `network_type` - WiFi, LoRaWAN, Zigbee, Bluetooth, Ethernet, Cellular
+- `ip_address`, `mac_address` - Network identifiers
+- `manufacturer`, `model` - Device hardware info
+- `temperature_celsius` - Gradual drift from device-specific baseline
+- `humidity_percent` - Gradual drift from device-specific baseline
+- `pressure_psi` - Gradual drift from device-specific baseline
+- `battery_level` - Slowly decreasing over time
+- `signal_strength` - Fluctuates around device-specific baseline
+
+**Stateful Behavior:**
+- Each device maintains its own baseline values for all sensors
+- Readings drift gradually using small Gaussian deltas (realistic time-series)
+- Static attributes (location, firmware, network type) remain constant per device
+- Battery level decreases slowly over time
+- Perfect example of state pool usage for realistic IoT simulation
+
+**Use Cases:**
+- IoT device monitoring and alerting
+- Time-series analysis and anomaly detection
+- Sensor data visualization
+- Testing IoT platforms and dashboards
+- Demonstrating stateful workload patterns
+
+**Example:**
+```bash
+# Continuous IoT telemetry with realistic drift
+python siem_producer.py iot_device -t iot_telemetry -f 5
+
+# High-frequency sensor data (every 100ms)
+python siem_producer.py iot_device -t iot_telemetry -f 0.1 -n 10000
+```
+
+See `templates/iot_device.j2` for the complete implementation using `init_pool()`, `pool()`, and `update_pool()`.
+
+### 6. **pcap_data** - Network Packet Capture (37 fields)
 PCAP-style network traffic data perfect for connection visualization and traffic analysis.
 
 **Key Fields:**
@@ -165,7 +206,7 @@ count by application
 traffic by geo_src_country → geo_dst_country
 ```
 
-### 6. **nginx_access_log** - NGINX Access Logs (raw text, `--no-schema`)
+### 7. **nginx_access_log** - NGINX Access Logs (raw text, `--no-schema`)
 NGINX combined log format with request time, produced as raw UTF-8 lines (no Avro, no Schema Registry). Use with `--no-schema`.
 
 **Example output:**
@@ -393,10 +434,16 @@ Templates are [Jinja2](https://jinja.palletsprojects.com/) files (`.j2`) that re
 - `data.<filename>` - List of stripped, non-empty, non-comment lines loaded from `templates/data/<filename>` at startup. See **External Data Sources** below.
 - `integer(min, max)` - Random integer in range (accepts negative bounds)
 - `floating(min, max, decimals=2)` - Random floating-point number, accepts negatives
+- `gaussian(mean, std_dev, decimals=2)` - Random number from a Gaussian (normal) distribution. Perfect for realistic sensor readings and natural variation.
 - `random_string(min, max)` - Random alphanumeric string of length in `[min, max]`
 - `random_string_vocabulary(min, max, "chars")` - Random string of length in `[min, max]` drawn from a character set
 - `counter("name", start, step)` - Monotonic counter per name (start, start+step, start+2*step, ...)
 - `regex("pattern")` - Random string matching regex pattern
+- `min(a, b, ...)` - Return the smallest value from arguments. Useful for clamping upper bounds.
+- `max(a, b, ...)` - Return the largest value from arguments. Useful for clamping lower bounds.
+- `init_pool("pool_name", dict)` - Initialize a state pool with pre-generated data (see **Stateful Workloads** below)
+- `pool("pool_name", key, field)` - Retrieve a value from a state pool (see **Stateful Workloads** below)
+- `update_pool("pool_name", key, field, value)` - Update a value in a state pool (see **Stateful Workloads** below)
 
 Since templates are full Jinja2, `{% if %}` / `{% for %}` / nested expressions are all available if you need conditional or repeating fields.
 
@@ -416,6 +463,109 @@ Since templates are full Jinja2, `{% if %}` / `{% for %}` / nested expressions a
   "percentage":      {{ floating(0, 100, decimals=0) }}       // 78.0 (still a float; use integer() for an int)
 }
 ```
+
+### Gaussian Distribution
+
+`gaussian(mean, std_dev, decimals=2)` generates random numbers from a Gaussian (normal) distribution. Perfect for realistic sensor readings, natural variation, and modeling real-world measurements.
+
+**Examples:**
+```jinja
+{
+  "temperature":     {{ gaussian(22.0, 2.0, 2) }},        // Mean 22°C, std dev 2°C
+  "humidity":        {{ gaussian(45.0, 10.0, 1) }},       // Mean 45%, std dev 10%
+  "response_time":   {{ gaussian(100.0, 15.0, 2) }},      // Mean 100ms, std dev 15ms
+  "cpu_usage":       {{ gaussian(50.0, 20.0, 1) }},       // Mean 50%, std dev 20%
+  "pressure":        {{ gaussian(14.7, 0.2, 3) }},        // Mean 14.7 psi, std dev 0.2
+  "signal_strength": {{ gaussian(-65.0, 5.0, 1) }}        // Mean -65 dBm, std dev 5 (negative values work)
+}
+```
+
+**Use Cases:**
+- Sensor readings (temperature, humidity, pressure)
+- Network metrics (latency, jitter)
+- System metrics (CPU, memory, disk I/O)
+- Any measurement that follows a bell curve distribution
+
+### Stateful Workloads (State Pools)
+
+For realistic time-series data where each reading should drift from the previous one (rather than jumping randomly), use **state pools**. This enables "random walk" patterns where sensor baselines evolve gradually over time, creating realistic IoT device behavior, stock prices, or any metric that changes incrementally.
+
+**Three functions work together:**
+
+1. **`init_pool("pool_name", dict)`** - Initialize a pool with pre-generated entities and their baseline values
+2. **`pool("pool_name", key, field)`** - Retrieve a value from the pool
+3. **`update_pool("pool_name", key, field, value)`** - Update a value in the pool (for the next render)
+
+**Pattern:**
+```jinja
+{# 1. Initialize pool once with baseline values for each entity #}
+{%- set device_configs = {} -%}
+{%- for i in range(0, 10) -%}
+    {%- set device_id = "Device-%03d"|format(i) -%}
+    {%- set _ = device_configs.update({
+        device_id: {
+            'location': randoms("Building A|Building B|Building C"),
+            'baseline_temperature': gaussian(22.0, 5.0, 2),
+            'baseline_humidity': gaussian(45.0, 15.0, 1)
+        }
+    }) -%}
+{%- endfor -%}
+{%- set _ = init_pool('devices', device_configs) -%}
+
+{# 2. Pick a random device #}
+{%- set device_id = randoms(device_configs.keys()|list) -%}
+
+{# 3. Get current baseline and add small drift #}
+{%- set new_temp = pool('devices', device_id, 'baseline_temperature') + gaussian(0.0, 0.5, 2) -%}
+{%- set new_humidity = pool('devices', device_id, 'baseline_humidity') + gaussian(0.0, 1.0, 1) -%}
+
+{# 4. Clamp values to realistic bounds using min/max #}
+{%- set new_temp = max(-10, min(50, new_temp)) -%}
+{%- set new_humidity = max(0, min(100, new_humidity)) -%}
+
+{# 5. Update pool with new values (becomes baseline for next render) #}
+{%- set _ = update_pool('devices', device_id, 'baseline_temperature', new_temp) -%}
+{%- set _ = update_pool('devices', device_id, 'baseline_humidity', new_humidity) -%}
+
+{# 6. Emit the record #}
+{
+    "timestamp": {{ now() }},
+    "device_id": {{ device_id | tojson }},
+    "location": {{ pool('devices', device_id, 'location') | tojson }},
+    "temperature_celsius": {{ new_temp | round(2) }},
+    "humidity_percent": {{ new_humidity | round(1) }}
+}
+```
+
+**How it works:**
+- **First render:** Each device gets a random baseline (e.g., Device-001 starts at 23.4°C, Device-002 at 19.8°C)
+- **Subsequent renders:** Each reading drifts slightly from the previous one using `gaussian(0.0, small_std_dev)`
+- **Result:** Device-001 might read 23.6°C → 23.4°C → 23.9°C → 23.7°C (realistic drift), not 23.4°C → 18.2°C → 27.9°C (unrealistic jumps)
+
+**Complete Example:** See `templates/iot_device.j2` for a full implementation with:
+- 10 IoT devices with unique IDs, locations, firmware versions, IP addresses, MAC addresses
+- 5 sensor baselines per device (temperature, humidity, pressure, battery, signal strength)
+- Gradual drift using small Gaussian deltas
+- Static attributes (location, firmware) retrieved from pool without updates
+
+**Use Cases:**
+- **IoT sensors** - Temperature, humidity, pressure readings that drift gradually
+- **Stock prices** - Price changes as small deltas from previous close
+- **Network metrics** - Latency/jitter that varies around a baseline
+- **System metrics** - CPU/memory usage that trends up/down over time
+- **User behavior** - Session duration, page views that evolve per user
+
+**Key Benefits:**
+- **Realistic time-series:** Data looks like real sensor readings, not random noise
+- **Per-entity state:** Each device/user/host maintains its own baseline
+- **Correlation:** Multiple metrics per entity can drift together (e.g., high temp → low battery)
+- **Reproducible:** Same device always starts from the same baseline (until updated)
+
+**Important Notes:**
+- Pools are initialized once at startup and persist across all renders
+- Don't pass default values to `pool()` — it overrides the carefully initialized baselines
+- Use small standard deviations in `gaussian()` for drift (0.1-1.0) vs. large ones for initial baselines (5.0-15.0)
+- Static attributes (location, firmware) are retrieved but never updated
 
 ### Regex Pattern Support
 
@@ -731,6 +881,7 @@ docker compose down -v
 └── templates/                 # SIEM data templates
     ├── auth_event.j2
     ├── dns_log.j2
+    ├── iot_device.j2          # IoT telemetry with stateful sensors
     ├── siem_log.j2
     ├── net_device.j2
     ├── syslog_log.j2

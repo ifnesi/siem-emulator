@@ -1,8 +1,25 @@
+{%- set device_configs = {
+    'firewall-01.corp.local': {'device_type': 'firewall'},
+    'firewall-02.corp.local': {'device_type': 'firewall'},
+    'firewall-03.corp.local': {'device_type': 'firewall'},
+    'fw-dmz-01': {'device_type': 'firewall'},
+    'fw-dmz-02': {'device_type': 'firewall'},
+    'fw-edge-01': {'device_type': 'firewall'},
+    'fw-edge-02': {'device_type': 'firewall'},
+    'asa-primary': {'device_type': 'firewall'},
+    'asa-secondary': {'device_type': 'firewall'},
+    'palo-alto-01': {'device_type': 'ids'},
+    'palo-alto-02': {'device_type': 'ids'},
+    'fortigate-01': {'device_type': 'ips'},
+    'checkpoint-gw01': {'device_type': 'waf'}
+} -%}
+{%- set _ = init_pool('security_devices', device_configs) -%}
+{%- set hostname = randoms(device_configs.keys()|list) -%}
 {
   "timestamp": {{ now() }},
   "event_id": {{ random_string_vocabulary(8, 12, "0123456789abcdef") | tojson }},
-  "hostname": {{ randoms("firewall-01.corp.local|firewall-02.corp.local|firewall-03.corp.local|fw-dmz-01|fw-dmz-02|fw-edge-01|fw-edge-02|asa-primary|asa-secondary|palo-alto-01|palo-alto-02|fortigate-01|checkpoint-gw01") | tojson }},
-  "device_type": {{ randoms("firewall|firewall|firewall|ids|ips|waf|proxy") | tojson }},
+  "hostname": {{ hostname | tojson }},
+  "device_type": {{ pool('security_devices', hostname, 'device_type') | tojson }},
   "severity": {{ randoms("info|info|info|warning|warning|critical|alert") | tojson }},
   "action": {{ randoms("allow|allow|allow|allow|allow|deny|deny|block|drop|reject") | tojson }},
   "protocol": {{ randoms("tcp|tcp|tcp|tcp|udp|udp|icmp|gre|esp") | tojson }},

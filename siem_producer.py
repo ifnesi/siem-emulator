@@ -74,8 +74,11 @@ class TemplateRenderer:
                 "gaussian": self._gaussian,
                 "regex": self._generate_from_regex,
                 "data": self._load_data(data_dir) if data_dir else {},
-                "pool": self._get_from_pool,
                 "init_pool": self._init_pool,
+                "pool": self._get_from_pool,
+                "update_pool": self._update_pool,
+                "min": min,
+                "max": max,
             }
         )
 
@@ -316,6 +319,38 @@ class TemplateRenderer:
             return default
         
         return pool[key].get(field, default)
+
+    def _update_pool(self, pool_name: str, key: str, field: str, value: Any) -> str:
+        """Update a value in a state pool.
+        
+        This enables "random walk" patterns where each reading becomes the new
+        baseline for the next reading, creating realistic time-series drift.
+        
+        Args:
+            pool_name: Name of the pool (e.g., 'devices')
+            key: The key to update (e.g., device_id)
+            field: The field to update (e.g., 'baseline_temperature')
+            value: The new value to store
+            
+        Returns:
+            Empty string (for use in templates without output)
+            
+        Example in template:
+            {%- set new_temp = pool('devices', device_id, 'baseline_temperature', 22.0) + gaussian(0.0, 0.5, 2) -%}
+            {%- set _ = update_pool('devices', device_id, 'baseline_temperature', new_temp) -%}
+            "temperature_celsius": {{ new_temp | round(2) }}
+        """
+        if pool_name not in self.state_pools:
+            logger.warning("Attempted to update non-existent pool '%s'", pool_name)
+            return ""
+        
+        pool = self.state_pools[pool_name]
+        if key not in pool:
+            logger.warning("Attempted to update non-existent key '%s' in pool '%s'", key, pool_name)
+            return ""
+        
+        pool[key][field] = value
+        return ""
 
 
 def _snake_to_pascal(name: str) -> str:
