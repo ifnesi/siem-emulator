@@ -1,5 +1,5 @@
 {%- set device_configs = {} -%}
-{%- for i in range(0, 1) -%}
+{%- for i in range(0, 50) -%}
     {%- set device_id = "IOT-DEV-%03d"|format(i) -%}
     {%- set _ = device_configs.update({
         device_id: {
