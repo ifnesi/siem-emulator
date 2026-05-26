@@ -42,35 +42,42 @@ class TemplateRenderer:
     def __init__(self, data_dir: Path | None = None) -> None:
         self.counters: dict[str, int] = {}
         self.logical_types: dict[str, str] = {}
+        # State pools: pre-generated pools of values indexed by key
+        self.state_pools: dict[str, dict[str, Any]] = {}
         self.env = jinja2.Environment(
             autoescape=False,
             undefined=jinja2.StrictUndefined,
             keep_trailing_newline=False,
         )
-        self.env.globals.update({
-            "now": lambda: (
-                f'{{"__logicaltype_iso-8601-timestamp__": '
-                f'"{datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}"}}'
-            ),
-            "unix_time_stamp": lambda max_ago: (
-                f'{{"__logicaltype_timestamp-millis__": '
-                f'{int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000)}}}'
-            ),
-            # Plain UTC strftime — for raw-text templates (e.g. NGINX, syslog
-            # lines) that need an arbitrary formatted timestamp rather than the
-            # JSON-wrapped logical-type markers emitted by `now()`.
-            "strftime": lambda fmt: datetime.now(timezone.utc).strftime(fmt),
-            "ip": self._random_ip,
-            "guid": lambda: str(uuid.uuid4()),
-            "randoms": self._randoms,
-            "integer": random.randint,
-            "random_string": self._random_string,
-            "random_string_vocabulary": self._random_string_vocab,
-            "counter": self._counter,
-            "floating": self._floating,
-            "regex": self._generate_from_regex,
-            "data": self._load_data(data_dir) if data_dir else {},
-        })
+        self.env.globals.update(
+            {
+                "now": lambda: (
+                    f'{{"__logicaltype_iso-8601-timestamp__": '
+                    f'"{datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}"}}'
+                ),
+                "unix_time_stamp": lambda max_ago: (
+                    f'{{"__logicaltype_timestamp-millis__": '
+                    f"{int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000)}}}"
+                ),
+                # Plain UTC strftime — for raw-text templates (e.g. NGINX, syslog
+                # lines) that need an arbitrary formatted timestamp rather than the
+                # JSON-wrapped logical-type markers emitted by `now()`.
+                "strftime": lambda fmt: datetime.now(timezone.utc).strftime(fmt),
+                "ip": self._random_ip,
+                "guid": lambda: str(uuid.uuid4()),
+                "randoms": self._randoms,
+                "integer": random.randint,
+                "random_string": self._random_string,
+                "random_string_vocabulary": self._random_string_vocab,
+                "counter": self._counter,
+                "floating": self._floating,
+                "gaussian": self._gaussian,
+                "regex": self._generate_from_regex,
+                "data": self._load_data(data_dir) if data_dir else {},
+                "pool": self._get_from_pool,
+                "init_pool": self._init_pool,
+            }
+        )
 
     @staticmethod
     def _load_data(data_dir: Path) -> Dict[str, list[str]]:
@@ -84,8 +91,12 @@ class TemplateRenderer:
         for path in sorted(data_dir.iterdir()):
             if not path.is_file() or path.name.startswith("."):
                 continue
-            lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
-            loaded[path.name] = [line for line in lines if line and not line.startswith("#")]
+            lines = [
+                line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            loaded[path.name] = [
+                line for line in lines if line and not line.startswith("#")
+            ]
         return loaded
 
     @staticmethod
@@ -108,7 +119,10 @@ class TemplateRenderer:
         non-structured payloads like NGINX access logs or syslog lines."""
         return template.render()
 
-    def render(self, template: jinja2.Template) -> Dict[str, Any]:
+    def render(
+        self,
+        template: jinja2.Template,
+    ) -> Dict[str, Any]:
         """Render a compiled template and parse the result as JSON.
 
         Helpers like `unix_time_stamp` emit a wrapper dict shaped
@@ -126,34 +140,82 @@ class TemplateRenderer:
             raise
         return self._unwrap_logical_markers(data)
 
-    def _unwrap_logical_markers(self, obj: Any, parent_key: str = "") -> Any:
+    def _unwrap_logical_markers(
+        self,
+        obj: Any,
+        parent_key: str = "",
+    ) -> Any:
         if isinstance(obj, dict):
             if len(obj) == 1:
                 only_key = next(iter(obj))
                 if (
                     only_key.startswith(self._LOGICALTYPE_PREFIX)
                     and only_key.endswith(self._LOGICALTYPE_SUFFIX)
-                    and len(only_key) > len(self._LOGICALTYPE_PREFIX) + len(self._LOGICALTYPE_SUFFIX)
+                    and len(only_key)
+                    > len(self._LOGICALTYPE_PREFIX) + len(self._LOGICALTYPE_SUFFIX)
                 ):
-                    logical = only_key[len(self._LOGICALTYPE_PREFIX):-len(self._LOGICALTYPE_SUFFIX)]
+                    logical = only_key[
+                        len(self._LOGICALTYPE_PREFIX) : -len(self._LOGICALTYPE_SUFFIX)
+                    ]
                     if parent_key:
                         self.logical_types[parent_key] = logical
                     return obj[only_key]
-            return {k: self._unwrap_logical_markers(v, parent_key=k) for k, v in obj.items()}
+            return {
+                k: self._unwrap_logical_markers(v, parent_key=k) for k, v in obj.items()
+            }
         if isinstance(obj, list):
-            return [self._unwrap_logical_markers(item, parent_key=parent_key) for item in obj]
+            return [
+                self._unwrap_logical_markers(item, parent_key=parent_key)
+                for item in obj
+            ]
         return obj
 
-    def _counter(self, name: str, start: int, step: int) -> int:
+    def _counter(
+        self,
+        name: str,
+        start: int,
+        step: int,
+    ) -> int:
         current = self.counters.get(name, start)
         self.counters[name] = current + step
         return current
 
     @staticmethod
-    def _floating(min_val: float, max_val: float, decimals: int = 2) -> float:
+    def _floating(
+        min_val: float,
+        max_val: float,
+        decimals: int = 2,
+    ) -> float:
         return round(random.uniform(min_val, max_val), decimals)
 
-    def _random_ip(self, cidr: str) -> str:
+    @staticmethod
+    def _gaussian(
+        mean: float,
+        std_dev: float,
+        decimals: int = 2,
+    ) -> float:
+        """Generate a random number from a Gaussian (normal) distribution.
+
+        Args:
+            mean: The mean (average) of the distribution
+            std_dev: The standard deviation of the distribution
+            decimals: Number of decimal places to round to (default: 2)
+
+        Returns:
+            A random float from the Gaussian distribution
+        """
+        return round(
+            random.gauss(
+                mean,
+                std_dev,
+            ),
+            decimals,
+        )
+
+    def _random_ip(
+        self,
+        cidr: str,
+    ) -> str:
         """Generate a random host IP from CIDR (excludes network/broadcast)."""
         if "/" not in cidr:
             return cidr
@@ -172,12 +234,21 @@ class TemplateRenderer:
 
     _ALPHANUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-    def _random_string(self, min_len: int, max_len: int) -> str:
+    def _random_string(
+        self,
+        min_len: int,
+        max_len: int,
+    ) -> str:
         """Generate a random alphanumeric string."""
         length = random.randint(min_len, max_len)
         return "".join(random.choice(self._ALPHANUM) for _ in range(length))
 
-    def _random_string_vocab(self, min_len: int, max_len: int, vocab: str) -> str:
+    def _random_string_vocab(
+        self,
+        min_len: int,
+        max_len: int,
+        vocab: str,
+    ) -> str:
         """Generate a random string drawn from the given vocabulary."""
         length = random.randint(min_len, max_len)
         return "".join(random.choice(vocab) for _ in range(length))
@@ -196,6 +267,55 @@ class TemplateRenderer:
         """
         normalised = pattern.replace("\\\\", "\\")
         return exrex.getone(normalised)
+
+    def _init_pool(self, pool_name: str, pool_data: dict) -> str:
+        """Initialize a state pool with pre-generated data.
+        
+        Only initializes the pool if it doesn't already exist, ensuring
+        consistent data across multiple template renders.
+        
+        Args:
+            pool_name: Name of the pool (e.g., 'devices')
+            pool_data: Dictionary mapping keys to their attributes
+            
+        Returns:
+            Empty string (for use in templates without output)
+            
+        Example in template:
+            {%- set _ = init_pool('devices', {
+                'IOT-DEV-001': {'location': 'Building 1', 'ip': '10.20.1.5'},
+                'IOT-DEV-002': {'location': 'Building 2', 'ip': '10.20.1.6'}
+            }) %}
+        """
+        # Only initialize if the pool doesn't exist yet
+        if pool_name not in self.state_pools:
+            self.state_pools[pool_name] = pool_data
+            logger.debug("Initialized pool '%s' with %d entries", pool_name, len(pool_data))
+        return ""
+
+    def _get_from_pool(self, pool_name: str, key: str, field: str, default: Any = None) -> Any:
+        """Retrieve a value from a state pool.
+        
+        Args:
+            pool_name: Name of the pool (e.g., 'devices')
+            key: The key to look up (e.g., device_id)
+            field: The field to retrieve (e.g., 'location', 'ip_address')
+            default: Default value if key or field not found
+            
+        Returns:
+            The stored value or default
+            
+        Example in template:
+            "location": {{ pool('devices', device_id, 'location', 'Unknown') | tojson }}
+        """
+        if pool_name not in self.state_pools:
+            return default
+        
+        pool = self.state_pools[pool_name]
+        if key not in pool:
+            return default
+        
+        return pool[key].get(field, default)
 
 
 def _snake_to_pascal(name: str) -> str:
@@ -275,7 +395,10 @@ def infer_avro_schema(
             # dict with the same field name don't collide on record names.
             element_field = f"{field_name}_item" if field_name else "item"
             if value:
-                return {"type": "array", "items": infer_type(value=value[0], field_name=element_field)}
+                return {
+                    "type": "array",
+                    "items": infer_type(value=value[0], field_name=element_field),
+                }
             return {"type": "array", "items": "string"}
         return "string"
 
@@ -311,8 +434,13 @@ def sample_for_schema(
     # later, prefer the populated version.
     for sample in samples[1:]:
         for key, value in sample.items():
-            if isinstance(value, list) and value and (
-                key not in merged or (isinstance(merged[key], list) and not merged[key])
+            if (
+                isinstance(value, list)
+                and value
+                and (
+                    key not in merged
+                    or (isinstance(merged[key], list) and not merged[key])
+                )
             ):
                 merged[key] = value
 
@@ -357,7 +485,9 @@ def create_topic_if_not_exists(
         logger.info("Topic '%s' already exists", topic)
         return
 
-    new_topic = NewTopic(topic, num_partitions=partitions, replication_factor=replication)
+    new_topic = NewTopic(
+        topic, num_partitions=partitions, replication_factor=replication
+    )
     futures: Dict[str, Future] = admin_client.create_topics([new_topic])
 
     for topic_name, future in futures.items():
@@ -374,7 +504,9 @@ def create_producer(kafka_config: Dict[str, str]) -> Producer:
     producer_config.setdefault("bootstrap.servers", "localhost:9092")
     producer_config.setdefault("security.protocol", "PLAINTEXT")
     # Surface broker-side issues (DNS failure, auth, broker down).
-    producer_config["error_cb"] = lambda err: logger.error("Kafka producer error: %s", err)
+    producer_config["error_cb"] = lambda err: logger.error(
+        "Kafka producer error: %s", err
+    )
     return Producer(producer_config)
 
 
@@ -395,9 +527,13 @@ def main() -> None:
     for noisy in ("httpx", "httpcore", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    parser = argparse.ArgumentParser(description="SIEM Data Producer for Kafka with Avro")
+    parser = argparse.ArgumentParser(
+        description="SIEM Data Producer for Kafka with Avro"
+    )
     parser.add_argument("template", help="Template name (without .j2 extension)")
-    parser.add_argument("-t", "--topic", help="Kafka topic (not required in dry-run mode)")
+    parser.add_argument(
+        "-t", "--topic", help="Kafka topic (not required in dry-run mode)"
+    )
     parser.add_argument(
         "-f",
         "--frequency",
@@ -450,7 +586,7 @@ def main() -> None:
         type=int,
         default=6,
         help="Number of partitions when creating the topic (default: 6). "
-             "Ignored if the topic already exists.",
+        "Ignored if the topic already exists.",
     )
     parser.add_argument(
         "-s",
@@ -505,12 +641,12 @@ def main() -> None:
         if args.key:
             conflicts.append("-k/--key")
         if conflicts:
-            parser.error(
-                f"--no-schema cannot be combined with: {', '.join(conflicts)}"
-            )
+            parser.error(f"--no-schema cannot be combined with: {', '.join(conflicts)}")
 
     if not (args.dry_run or args.inferred_schema) and not args.topic:
-        parser.error("the following arguments are required: -t/--topic (not required with --dry-run or --inferred-schema)")
+        parser.error(
+            "the following arguments are required: -t/--topic (not required with --dry-run or --inferred-schema)"
+        )
 
     template_path = Path(args.templates_dir) / f"{args.template}.j2"
     if not template_path.exists():
@@ -552,7 +688,9 @@ def main() -> None:
             )
 
         if args.inferred_schema:
-            source = f"file {args.schema}" if args.schema else f"template {args.template}"
+            source = (
+                f"file {args.schema}" if args.schema else f"template {args.template}"
+            )
             logger.info("Schema from %s:", source)
             print(json.dumps(json.loads(avro_schema_str), indent=2))
             print()
@@ -605,7 +743,9 @@ def main() -> None:
             "url": registry_config.get("schemaRegistryURL", "http://localhost:8081")
         }
         if registry_config.get("basic.auth.user.info"):
-            schema_registry_conf["basic.auth.user.info"] = registry_config["basic.auth.user.info"]
+            schema_registry_conf["basic.auth.user.info"] = registry_config[
+                "basic.auth.user.info"
+            ]
 
         schema_registry_client = SchemaRegistryClient(schema_registry_conf)
         schema_id_serializer = (
@@ -624,11 +764,15 @@ def main() -> None:
         logger.info("Schema mode: --no-schema (raw UTF-8, no Schema Registry)")
 
     logger.info("Checking/creating topic '%s'...", args.topic)
-    create_topic_if_not_exists(kafka_config, topic=args.topic, partitions=args.partitions)
+    create_topic_if_not_exists(
+        kafka_config, topic=args.topic, partitions=args.partitions
+    )
 
     producer = create_producer(kafka_config)
 
-    logger.info("Producing to topic '%s' with frequency %ss", args.topic, args.frequency)
+    logger.info(
+        "Producing to topic '%s' with frequency %ss", args.topic, args.frequency
+    )
     if args.num_records > 0:
         logger.info("Total records: %d", args.num_records)
     else:
@@ -667,7 +811,9 @@ def main() -> None:
                     try:
                         serialized_value = avro_serializer(
                             data,
-                            SerializationContext(args.topic, MessageField.VALUE, headers),
+                            SerializationContext(
+                                args.topic, MessageField.VALUE, headers
+                            ),
                         )
                     except Exception as e:
                         logger.error("Error serializing message: %s", e)

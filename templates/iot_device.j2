@@ -1,0 +1,36 @@
+{%- set device_ids = [] -%}
+{%- for i in range(50) -%}
+    {%- set _ = device_ids.append("IOT-DEV-%03d"|format(i)) -%}
+{%- endfor -%}
+{%- set device_configs = {} -%}
+{%- for device_id in device_ids -%}
+    {%- set _ = device_configs.update({
+        device_id: {
+            'location': regex("Building \\d{1} - Floor [A-E]"),
+            'firmware_version': randoms("1.0.0|1.0.1|1.1.0|1.2.0|2.0.0|2.1.0"),
+            'network_type': randoms("WiFi|LoRaWAN|Zigbee|Bluetooth|Ethernet|Cellular"),
+            'ip_address': ip("10.20.0.0/16"),
+            'mac_address': regex("[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"),
+            'manufacturer': randoms("SensorTech Inc|IoT Solutions Ltd|SmartDevice Corp|EnviroSense|TempMaster|ClimateControl Systems"),
+            'model': randoms("ST-100|ST-200|IOT-ENV-PRO|TM-500|CC-1000|ES-300")
+        }
+    }) -%}
+{%- endfor -%}
+{%- set _ = init_pool('devices', device_configs) -%}
+{%- set device_id = randoms(device_ids) -%}
+{
+    "timestamp": {{ now() }},
+    "device_id": {{ device_id | tojson }},
+    "location": {{ pool('devices', device_id, 'location') | tojson }},
+    "firmware_version": {{ pool('devices', device_id, 'firmware_version') | tojson }},
+    "network_type": {{ pool('devices', device_id, 'network_type') | tojson }},
+    "ip_address": {{ pool('devices', device_id, 'ip_address') | tojson }},
+    "mac_address": {{ pool('devices', device_id, 'mac_address') | tojson }},
+    "manufacturer": {{ pool('devices', device_id, 'manufacturer') | tojson }},
+    "model": {{ pool('devices', device_id, 'model') | tojson }},
+    "temperature_celsius": {{ gaussian(22.0, 3.5, 2) }},
+    "humidity_percent": {{ gaussian(45.0, 10.0, 1) }},
+    "pressure_psi": {{ gaussian(14.7, 0.07, 3) }},
+    "battery_level": {{ gaussian(85.0, 15.0, 1) }},
+    "signal_strength": {{ gaussian(-65.0, 10.0, 1) }}
+}
