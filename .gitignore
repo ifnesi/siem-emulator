@@ -23,6 +23,7 @@ Thumbs.db
 
 # Logs
 *.log
+notes.txt
 
 # Kafka Config files
 kafka/

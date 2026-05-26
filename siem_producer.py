@@ -273,17 +273,17 @@ class TemplateRenderer:
 
     def _init_pool(self, pool_name: str, pool_data: dict) -> str:
         """Initialize a state pool with pre-generated data.
-        
+
         Only initializes the pool if it doesn't already exist, ensuring
         consistent data across multiple template renders.
-        
+
         Args:
             pool_name: Name of the pool (e.g., 'devices')
             pool_data: Dictionary mapping keys to their attributes
-            
+
         Returns:
             Empty string (for use in templates without output)
-            
+
         Example in template:
             {%- set _ = init_pool('devices', {
                 'IOT-DEV-001': {'location': 'Building 1', 'ip': '10.20.1.5'},
@@ -293,48 +293,52 @@ class TemplateRenderer:
         # Only initialize if the pool doesn't exist yet
         if pool_name not in self.state_pools:
             self.state_pools[pool_name] = pool_data
-            logger.debug("Initialized pool '%s' with %d entries", pool_name, len(pool_data))
+            logger.debug(
+                "Initialized pool '%s' with %d entries", pool_name, len(pool_data)
+            )
         return ""
 
-    def _get_from_pool(self, pool_name: str, key: str, field: str, default: Any = None) -> Any:
+    def _get_from_pool(
+        self, pool_name: str, key: str, field: str, default: Any = None
+    ) -> Any:
         """Retrieve a value from a state pool.
-        
+
         Args:
             pool_name: Name of the pool (e.g., 'devices')
             key: The key to look up (e.g., device_id)
             field: The field to retrieve (e.g., 'location', 'ip_address')
             default: Default value if key or field not found
-            
+
         Returns:
             The stored value or default
-            
+
         Example in template:
             "location": {{ pool('devices', device_id, 'location', 'Unknown') | tojson }}
         """
         if pool_name not in self.state_pools:
             return default
-        
+
         pool = self.state_pools[pool_name]
         if key not in pool:
             return default
-        
+
         return pool[key].get(field, default)
 
     def _update_pool(self, pool_name: str, key: str, field: str, value: Any) -> str:
         """Update a value in a state pool.
-        
+
         This enables "random walk" patterns where each reading becomes the new
         baseline for the next reading, creating realistic time-series drift.
-        
+
         Args:
             pool_name: Name of the pool (e.g., 'devices')
             key: The key to update (e.g., device_id)
             field: The field to update (e.g., 'baseline_temperature')
             value: The new value to store
-            
+
         Returns:
             Empty string (for use in templates without output)
-            
+
         Example in template:
             {%- set new_temp = pool('devices', device_id, 'baseline_temperature', 22.0) + gaussian(0.0, 0.5, 2) -%}
             {%- set _ = update_pool('devices', device_id, 'baseline_temperature', new_temp) -%}
@@ -343,12 +347,14 @@ class TemplateRenderer:
         if pool_name not in self.state_pools:
             logger.warning("Attempted to update non-existent pool '%s'", pool_name)
             return ""
-        
+
         pool = self.state_pools[pool_name]
         if key not in pool:
-            logger.warning("Attempted to update non-existent key '%s' in pool '%s'", key, pool_name)
+            logger.warning(
+                "Attempted to update non-existent key '%s' in pool '%s'", key, pool_name
+            )
             return ""
-        
+
         pool[key][field] = value
         return ""
 
@@ -542,6 +548,7 @@ def create_producer(kafka_config: Dict[str, str]) -> Producer:
     producer_config["error_cb"] = lambda err: logger.error(
         "Kafka producer error: %s", err
     )
+
     return Producer(producer_config)
 
 
@@ -800,7 +807,9 @@ def main() -> None:
 
     logger.info("Checking/creating topic '%s'...", args.topic)
     create_topic_if_not_exists(
-        kafka_config, topic=args.topic, partitions=args.partitions
+        kafka_config,
+        topic=args.topic,
+        partitions=args.partitions,
     )
 
     producer = create_producer(kafka_config)
