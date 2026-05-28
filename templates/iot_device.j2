@@ -20,7 +20,7 @@
 {%- endfor -%}
 {%- set _ = init_pool('devices', device_configs) -%}
 {%- set device_id = randoms(device_configs.keys()|list) -%}
-{%- set new_temperature = pool('devices', device_id, 'baseline_temperature') + gaussian(0.0, 0.05, 2) -%}
+{%- set new_temperature = pool('devices', device_id, 'baseline_temperature') + gaussian(0.0, 0.01, 2) -%}
 {%- set new_humidity = min(90, max(5, pool('devices', device_id, 'baseline_humidity') + gaussian(0.0, 0.1, 1))) -%}
 {%- set new_pressure = pool('devices', device_id, 'baseline_pressure') + gaussian(0.0, 0.05, 3) -%}
 {%- set new_battery = min(99, max(5, pool('devices', device_id, 'baseline_battery') - gaussian(0.001, 0.1, 2))) -%}
