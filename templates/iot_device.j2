@@ -20,10 +20,14 @@
 {%- endfor -%}
 {%- set _ = init_pool('devices', device_configs) -%}
 {%- set device_id = randoms(device_configs.keys()|list) -%}
-{%- set new_temperature = pool('devices', device_id, 'baseline_temperature') + gaussian(0.0, 0.01, 2) -%}
-{%- set new_humidity = min(90, max(5, pool('devices', device_id, 'baseline_humidity') + gaussian(0.0, 0.1, 1))) -%}
+{# Clamp bounds are floats so min()/max() never collapse a reading to a Python int #}
+{# (which would make the field render as e.g. 90 instead of 90.0 and destabilise the #}
+{# inferred Avro type between long and double). #}
+{%- set new_temperature = pool('devices', device_id, 'baseline_temperature') + gaussian(0.0, 0.1, 2) -%}
+{%- set new_humidity = min(90.0, max(5.0, pool('devices', device_id, 'baseline_humidity') + gaussian(0.0, 0.1, 1))) -%}
 {%- set new_pressure = pool('devices', device_id, 'baseline_pressure') + gaussian(0.0, 0.05, 3) -%}
-{%- set new_battery = min(99, max(5, pool('devices', device_id, 'baseline_battery') - gaussian(0.001, 0.1, 2))) -%}
+{# Battery only ever discharges: subtract a strictly positive drain so it trends down, not random-walks. #}
+{%- set new_battery = min(99.0, max(5.0, pool('devices', device_id, 'baseline_battery') - (gaussian(0.02, 0.01, 3) | abs))) -%}
 {%- set new_signal = pool('devices', device_id, 'baseline_signal') + gaussian(0.0, 0.1, 1) -%}
 {%- set _ = update_pool('devices', device_id, 'baseline_temperature', new_temperature) -%}
 {%- set _ = update_pool('devices', device_id, 'baseline_humidity', new_humidity) -%}

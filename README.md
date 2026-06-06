@@ -9,7 +9,7 @@ Generate realistic SIEM (Security Information and Event Management) data and pro
 - ✅ Schema Registry integration
 - ✅ Configurable frequency and batch size (deadline-paced so production time doesn't drift the rate)
 - ✅ Continuous or fixed-count production modes
-- ✅ 5 comprehensive SIEM templates included
+- ✅ 8 comprehensive SIEM templates included
 - ✅ Realistic data for demos and testing
 - ✅ Perfect for Splunk, Kibana, and other SIEM platforms
 

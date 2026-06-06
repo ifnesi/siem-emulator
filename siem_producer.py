@@ -398,6 +398,11 @@ def infer_avro_schema(
 
     def infer_type(value: Any, field_name: str = "") -> Any:
         """Infer Avro type from Python value."""
+        if value is None:
+            # A field rendered as JSON `null` (e.g. via a conditional template
+            # branch). Make it a nullable string union; the field builder adds
+            # a `null` default so the field is also safe to omit.
+            return ["null", "string"]
         if isinstance(value, bool):
             return "boolean"
         if isinstance(value, int):
@@ -426,10 +431,7 @@ def infer_avro_schema(
         if isinstance(value, dict):
             base_name = _snake_to_pascal(field_name) if field_name else "Nested"
             record_name = _unique(base_name)
-            fields = [
-                {"name": k, "type": infer_type(value=v, field_name=k)}
-                for k, v in value.items()
-            ]
+            fields = [_build_field(k, v) for k, v in value.items()]
             return {"type": "record", "name": record_name, "fields": fields}
         if isinstance(value, list):
             # Suffix the element's logical name so an array<dict> and a sibling
@@ -443,9 +445,16 @@ def infer_avro_schema(
             return {"type": "array", "items": "string"}
         return "string"
 
-    fields: list[Any] = []
-    for key, value in data.items():
-        fields.append({"name": key, "type": infer_type(value=value, field_name=key)})
+    def _build_field(name: str, value: Any) -> dict[str, Any]:
+        """Build a record field, adding a `null` default for nullable unions
+        so the field can also be safely omitted by later records."""
+        field_type = infer_type(value=value, field_name=name)
+        field: dict[str, Any] = {"name": name, "type": field_type}
+        if isinstance(field_type, list) and field_type and field_type[0] == "null":
+            field["default"] = None
+        return field
+
+    fields: list[Any] = [_build_field(key, value) for key, value in data.items()]
 
     schema: dict[str, Any] = {
         "type": "record",
@@ -467,8 +476,15 @@ def sample_for_schema(
 
     Returns a representative record. Warns on fields that are always empty
     lists since their element type can't be inferred.
+
+    Sampling reuses the live renderer, so stateful helpers (`counter`, state
+    pools) would otherwise be advanced by `num_samples` before the first real
+    record is produced. We snapshot and restore the counters so, e.g., a
+    `counter("seq", 1, 1)` still starts at 1 in production.
     """
+    counters_snapshot = dict(renderer.counters)
     samples = [renderer.render(template=template) for _ in range(num_samples)]
+    renderer.counters = counters_snapshot
     merged = dict(samples[0])
 
     # If a top-level field is an empty list in the first sample but populated
@@ -521,7 +537,18 @@ def create_topic_if_not_exists(
 
     admin_client = AdminClient(admin_config)
 
-    metadata = admin_client.list_topics(timeout=10)
+    # Fetching metadata is the first real contact with the broker — surface an
+    # unreachable/misconfigured broker as a clear message instead of a raw
+    # KafkaException traceback.
+    try:
+        metadata = admin_client.list_topics(timeout=10)
+    except Exception as e:
+        logger.error(
+            "Could not reach Kafka at '%s': %s",
+            admin_config.get("bootstrap.servers"),
+            e,
+        )
+        sys.exit(1)
     if topic in metadata.topics:
         logger.info("Topic '%s' already exists", topic)
         return
@@ -536,7 +563,10 @@ def create_topic_if_not_exists(
             future.result()
             logger.info("Topic '%s' created successfully", topic_name)
         except Exception as e:
+            # Don't fall through to producing into a topic that doesn't exist —
+            # every send would silently fail in the delivery callback.
             logger.error("Failed to create topic '%s': %s", topic_name, e)
+            sys.exit(1)
 
 
 def create_producer(kafka_config: Dict[str, str]) -> Producer:
@@ -674,6 +704,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if args.batch_size < 1:
+        parser.error("-b/--batch-size must be >= 1")
+    if args.num_records < 0:
+        parser.error("-n/--num-records must be >= 0 (0 = continuous)")
+    if args.frequency < 0:
+        parser.error("-f/--frequency must be >= 0")
+
     if args.no_schema:
         conflicts = []
         if args.schema:
@@ -795,11 +832,22 @@ def main() -> None:
             if args.schema_id_location == "headers"
             else prefix_schema_id_serializer
         )
+        serializer_conf: dict[str, Any] = {
+            "schema.id.serializer": schema_id_serializer
+        }
+        # Honor auto.register.schemas from registry.properties (it's an
+        # AvroSerializer option, not a SchemaRegistryClient one). Accepts the
+        # usual truthy spellings; defaults to the SDK behaviour (True) when
+        # unset.
+        if "auto.register.schemas" in registry_config:
+            serializer_conf["auto.register.schemas"] = registry_config[
+                "auto.register.schemas"
+            ].strip().lower() in ("true", "1", "yes")
         avro_serializer = AvroSerializer(
             schema_registry_client,
             avro_schema_str,
             lambda obj, ctx: obj,  # obj is already a dict
-            conf={"schema.id.serializer": schema_id_serializer},
+            conf=serializer_conf,
         )
         logger.info("Schema ID location: %s", args.schema_id_location)
     else:
@@ -822,8 +870,14 @@ def main() -> None:
     else:
         logger.info("Mode: Continuous (press Ctrl+C to stop)")
 
+    # If this many records fail back-to-back (render, serialize, or produce),
+    # give up rather than spin forever — in `-n` mode persistent failures would
+    # otherwise never let `count` reach the target and the loop would never exit.
+    MAX_CONSECUTIVE_FAILURES = 100
+
     try:
         count = 0
+        consecutive_failures = 0
         next_deadline = time.monotonic()
         while True:
             # Check if we've reached the limit
@@ -849,9 +903,19 @@ def main() -> None:
                         ).encode("utf-8")
                     except Exception as e:
                         logger.error("Error rendering template: %s", e)
+                        consecutive_failures += 1
                         continue
                 else:
-                    data = renderer.render(template=template)
+                    # Rendering can raise (e.g. a random field combination that
+                    # produces invalid JSON, or a helper that throws). Catch it
+                    # so a single bad render is skipped rather than crashing a
+                    # long-running producer — same contract as the raw path.
+                    try:
+                        data = renderer.render(template=template)
+                    except Exception as e:
+                        logger.error("Error rendering template: %s", e)
+                        consecutive_failures += 1
+                        continue
                     try:
                         serialized_value = avro_serializer(
                             data,
@@ -861,6 +925,7 @@ def main() -> None:
                         )
                     except Exception as e:
                         logger.error("Error serializing message: %s", e)
+                        consecutive_failures += 1
                         continue
 
                     # Per-record key validation. Startup only validates the first
@@ -876,6 +941,7 @@ def main() -> None:
                                 args.key,
                                 type(key_value).__name__,
                             )
+                            consecutive_failures += 1
                             continue
                         message_key = str(key_value).encode("utf-8")
 
@@ -883,6 +949,7 @@ def main() -> None:
                 # doesn't silently drop records. Drop after MAX_RETRIES so a
                 # permanently broken producer can't wedge the loop.
                 MAX_RETRIES = 5
+                produced = False
                 for attempt in range(MAX_RETRIES + 1):
                     try:
                         producer.produce(
@@ -894,6 +961,7 @@ def main() -> None:
                         )
                         producer.poll(0)
                         count += 1
+                        produced = True
                         break
                     except BufferError:
                         if attempt == MAX_RETRIES:
@@ -906,6 +974,16 @@ def main() -> None:
                     except Exception as e:
                         logger.error("Error producing message: %s", e)
                         break
+
+                consecutive_failures = 0 if produced else consecutive_failures + 1
+
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                logger.error(
+                    "Aborting after %d consecutive failures — check broker / "
+                    "Schema Registry connectivity and template output",
+                    consecutive_failures,
+                )
+                break
 
             # Pace the next batch against a deadline so production time doesn't
             # cause the effective frequency to drift below the configured one.

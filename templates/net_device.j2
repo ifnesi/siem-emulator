@@ -1,3 +1,5 @@
+{%- set dst_choice = randoms("10.1.0.0/16|10.2.0.0/16|172.16.0.0/16|external") -%}
+{%- set dst_ip = ip(dst_choice) if dst_choice != "external" else randoms("8.8.8.8|1.1.1.1|93.184.216.34|151.101.1.140") -%}
 {
     "timestamp": {{ now() }},
     "flow_id": {{ random_string_vocabulary(16, 20, "0123456789abcdef") | tojson }},
@@ -8,7 +10,7 @@
     "vlan_id": {{ integer(1, 4094) }},
     "vlan_name": {{ randoms("PROD-WEB|PROD-APP|PROD-DB|DEV-NETWORK|QA-NETWORK|MGMT|DMZ|GUEST|IOT|VOICE") | tojson }},
     "src_ip": {{ ip("10.1.0.0/16") | tojson }},
-    "dst_ip": {{ randoms("10.1.0.0/16|10.2.0.0/16|172.16.0.0/16|8.8.8.8|1.1.1.1|93.184.216.34|151.101.1.140") | tojson }},
+    "dst_ip": {{ dst_ip | tojson }},
     "src_port": {{ integer(1024, 65535) }},
     "dst_port": {{ randoms(data.known_ports) | int }},
     "protocol": {{ integer(1, 255) }},
@@ -19,8 +21,9 @@
     "bytes_out": {{ integer(64, 10485760) }},
     "packets_in": {{ integer(1, 100000) }},
     "packets_out": {{ integer(1, 100000) }},
+    {# end is pinned to "now" and start is up to 300s earlier so start <= end always #}
     "flow_start_time": {{ unix_time_stamp(300) }},
-    "flow_end_time": {{ unix_time_stamp(10) }},
+    "flow_end_time": {{ unix_time_stamp(0) }},
     "flow_duration": {{ integer(1, 300) }},
     "src_as": {{ integer(1, 65535) }},
     "dst_as": {{ integer(1, 65535) }},
