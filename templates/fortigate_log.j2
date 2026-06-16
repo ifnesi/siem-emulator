@@ -1,0 +1,223 @@
+{#- FortiGate Firewall Log (FortiOS 7.x) — raw key=value text, use with --no-schema -#}
+
+{#- ── Device pool ──────────────────────────────────────────────────────────── -#}
+{%- set device_configs = {} -%}
+{%- for cfg in [
+    {'devname': 'FG-60F-BR01',    'devid': 'FGT60FTK22001234',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '192.168.1.0/24',   'transip': '203.0.113.10',  'vd': 'root'},
+    {'devname': 'FG-60F-BR02',    'devid': 'FGT60FTK22005678',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '192.168.2.0/24',   'transip': '203.0.113.20',  'vd': 'root'},
+    {'devname': 'FG-60F-BR03',    'devid': 'FGT60FTK2200AABB',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '192.168.3.0/24',   'transip': '203.0.113.30',  'vd': 'root'},
+    {'devname': 'FG-60F-BR04',    'devid': 'FGT60FTK2200CCDD',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '192.168.4.0/24',   'transip': '203.0.113.40',  'vd': 'root'},
+    {'devname': 'FG-60F-BR05',    'devid': 'FGT60FTK2200EEFF',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '192.168.5.0/24',   'transip': '203.0.113.60',  'vd': 'root'},
+    {'devname': 'FG-60F-MFG01',   'devid': 'FGT60FTK2201A1B1',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.50.1.0/24',     'transip': '192.0.2.11',    'vd': 'MFG'},
+    {'devname': 'FG-60F-MFG02',   'devid': 'FGT60FTK2201C2D2',   'srcintf': 'internal',    'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.50.2.0/24',     'transip': '192.0.2.12',    'vd': 'MFG'},
+    {'devname': 'FG-100F-HQ01',   'devid': 'FGT100FTK220A1B2',   'srcintf': 'port1',       'dstintf': 'port2',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.10.0.0/16',     'transip': '198.51.100.5',  'vd': 'root'},
+    {'devname': 'FG-100F-RO01',   'devid': 'FGT100FTK220B3C4',   'srcintf': 'port1',       'dstintf': 'port2',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.30.1.0/24',     'transip': '198.51.100.31', 'vd': 'root'},
+    {'devname': 'FG-100F-RO02',   'devid': 'FGT100FTK220D5E6',   'srcintf': 'port1',       'dstintf': 'port2',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.30.2.0/24',     'transip': '198.51.100.32', 'vd': 'root'},
+    {'devname': 'FG-100F-RO03',   'devid': 'FGT100FTK220F7G8',   'srcintf': 'port1',       'dstintf': 'port2',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.30.3.0/24',     'transip': '198.51.100.33', 'vd': 'root'},
+    {'devname': 'FG-100F-RTL01',  'devid': 'FGT100FTK220H9I0',   'srcintf': 'lan',         'dstintf': 'wan',    'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.60.1.0/24',     'transip': '192.0.2.61',    'vd': 'RETAIL'},
+    {'devname': 'FG-100F-RTL02',  'devid': 'FGT100FTK220J1K2',   'srcintf': 'lan',         'dstintf': 'wan',    'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.60.2.0/24',     'transip': '192.0.2.62',    'vd': 'RETAIL'},
+    {'devname': 'FG-200F-HQ02',   'devid': 'FGT200FTK220D3E4',   'srcintf': 'port3',       'dstintf': 'port1',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.20.0.0/16',     'transip': '198.51.100.25', 'vd': 'root'},
+    {'devname': 'FG-200F-HQ03',   'devid': 'FGT200FTK220L3M4',   'srcintf': 'port3',       'dstintf': 'port1',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.40.0.0/16',     'transip': '198.51.100.40', 'vd': 'root'},
+    {'devname': 'FG-200F-HQ04',   'devid': 'FGT200FTK220N5O6',   'srcintf': 'port3',       'dstintf': 'port1',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.40.1.0/16',     'transip': '198.51.100.41', 'vd': 'GUEST'},
+    {'devname': 'FG-200F-CL01',   'devid': 'FGT200FTK220P7Q8',   'srcintf': 'port1',       'dstintf': 'port2',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '172.31.0.0/16',    'transip': '192.0.2.71',    'vd': 'CLOUD'},
+    {'devname': 'FG-400F-DC01',   'devid': 'FGT400FTK220G5H6',   'srcintf': 'dmz',         'dstintf': 'wan1',   'srcintfrole': 'dmz',       'dstintfrole': 'wan', 'lan_cidr': '172.16.10.0/24',   'transip': '203.0.113.50',  'vd': 'DMZ'},
+    {'devname': 'FG-400F-DC03',   'devid': 'FGT400FTK220R9S0',   'srcintf': 'dmz',         'dstintf': 'wan1',   'srcintfrole': 'dmz',       'dstintfrole': 'wan', 'lan_cidr': '172.16.30.0/24',   'transip': '203.0.113.80',  'vd': 'DMZ'},
+    {'devname': 'FG-400F-DC04',   'devid': 'FGT400FTK220T1U2',   'srcintf': 'VLAN-MGMT',   'dstintf': 'wan1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '172.16.40.0/24',   'transip': '203.0.113.90',  'vd': 'MGMT'},
+    {'devname': 'FG-400F-EDGE01', 'devid': 'FGT400FTK220V3W4',   'srcintf': 'port1',       'dstintf': 'port2',  'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.0.0.0/8',       'transip': '192.0.2.1',     'vd': 'root'},
+    {'devname': 'FG-600F-DC02',   'devid': 'FGT600FTK220J7K8',   'srcintf': 'VLAN-PROD',   'dstintf': 'WAN',    'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '172.16.20.0/24',   'transip': '203.0.113.100', 'vd': 'PROD'},
+    {'devname': 'FG-600F-DC03',   'devid': 'FGT600FTK220X5Y6',   'srcintf': 'VLAN-PROD',   'dstintf': 'WAN',    'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '172.17.0.0/16',    'transip': '203.0.113.110', 'vd': 'PROD'},
+    {'devname': 'FG-600F-CORE02', 'devid': 'FGT600FTK220Z7A8',   'srcintf': 'VLAN-CORE',   'dstintf': 'WAN',    'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.0.0.0/8',       'transip': '203.0.113.120', 'vd': 'CORE'},
+    {'devname': 'FG-1000F-CORE01','devid': 'FGT1000FTK220B9C0',  'srcintf': 'VLAN-CAMPUS', 'dstintf': 'WAN1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '10.1.0.0/16',      'transip': '198.51.100.100','vd': 'CAMPUS'},
+    {'devname': 'FG-1800F-DC01',  'devid': 'FGT1800FTK220D1E2',  'srcintf': 'VLAN-SERVER', 'dstintf': 'WAN1',   'srcintfrole': 'lan',       'dstintfrole': 'wan', 'lan_cidr': '172.18.0.0/16',    'transip': '198.51.100.200','vd': 'SERVERS'}
+] -%}
+    {%- set _ = device_configs.update({
+        cfg.devname: {
+            'devid':       cfg.devid,
+            'srcintf':     cfg.srcintf,
+            'dstintf':     cfg.dstintf,
+            'srcintfrole': cfg.srcintfrole,
+            'dstintfrole': cfg.dstintfrole,
+            'srcip':       ip(cfg.lan_cidr),
+            'transip':     cfg.transip,
+            'vd':          cfg.vd
+        }
+    }) -%}
+{%- endfor -%}
+{%- set _ = init_pool('fortigates', device_configs) -%}
+{%- set devname = randoms(device_configs.keys()|list) -%}
+
+{#- ── Service / protocol lookup ──────────────────────────────────────────── -#}
+{%- set service_map = {
+    'DNS':   {'proto': 17, 'dstport': 53,   'appid': 16195, 'app': 'DNS',           'appcat': 'Network.Service', 'apprisk': 'elevated'},
+    'HTTP':  {'proto': 6,  'dstport': 80,   'appid': 34534, 'app': 'Web.Browser',   'appcat': 'Web.Client',      'apprisk': 'medium'},
+    'HTTPS': {'proto': 6,  'dstport': 443,  'appid': 40568, 'app': 'HTTPS.BROWSER', 'appcat': 'Web.Client',      'apprisk': 'medium'},
+    'SSH':   {'proto': 6,  'dstport': 22,   'appid': 32639, 'app': 'SSH',           'appcat': 'Remote.Access',   'apprisk': 'elevated'},
+    'SMTP':  {'proto': 6,  'dstport': 25,   'appid': 18426, 'app': 'SMTP',          'appcat': 'Email',           'apprisk': 'medium'},
+    'RDP':   {'proto': 6,  'dstport': 3389, 'appid': 31003, 'app': 'RDP',           'appcat': 'Remote.Access',   'apprisk': 'high'},
+    'NTP':   {'proto': 17, 'dstport': 123,  'appid': 15967, 'app': 'NTP',           'appcat': 'Network.Service', 'apprisk': 'low'},
+    'FTP':   {'proto': 6,  'dstport': 21,   'appid': 15332, 'app': 'FTP',           'appcat': 'File.Sharing',    'apprisk': 'medium'},
+    'IMAP':  {'proto': 6,  'dstport': 143,  'appid': 20486, 'app': 'IMAP',          'appcat': 'Email',           'apprisk': 'low'},
+    'SMB':   {'proto': 6,  'dstport': 445,  'appid': 22109, 'app': 'SMB',           'appcat': 'File.Sharing',    'apprisk': 'high'}
+} -%}
+{%- set svc_key = randoms('DNS|DNS|HTTP|HTTPS|HTTPS|HTTPS|HTTPS|HTTPS|SSH|SMTP|RDP|NTP|FTP|IMAP|SMB') -%}
+{%- set svc     = service_map[svc_key] -%}
+
+{#- ── Log type selection (weighted toward traffic/forward) ───────────────── -#}
+{%- set log_kind = randoms('traffic_fwd|traffic_fwd|traffic_fwd|traffic_fwd|traffic_fwd|traffic_local|utm_webfilter|utm_virus|utm_dns|utm_ips|event_system|event_vpn|event_user') -%}
+
+{#- ── Shared randoms used across multiple branches ───────────────────────── -#}
+{%- set dst_ip   = ip(randoms('8.8.0.0/16|1.1.0.0/16|34.0.0.0/8|52.0.0.0/8|172.217.0.0/16|104.16.0.0/12|13.32.0.0/15|199.232.0.0/16')) -%}
+{%- set src_user = randoms(data.users) -%}
+
+{#- ── Namespace — traffic_fwd defaults, overridden per type below ────────── -#}
+{%- set _fwd_action = randoms('close|close|close|close|close|accept|accept|deny|drop') -%}
+{%- set n = namespace(
+    log_type    = 'traffic',
+    log_sub     = 'forward',
+    logid       = '0000000013',
+    log_action  = _fwd_action,
+    log_level   = 'notice' if _fwd_action in ['close', 'accept'] else 'warning',
+    policytype  = 'policy',
+    policymode  = randoms('learn|flow|proxy'),
+    poluuid_val = guid(),
+    log_service = svc_key,
+    trandisp    = 'snat' if _fwd_action in ['close', 'accept'] else 'noop',
+    srccountry  = 'Reserved',
+    dstcountry  = randoms('United States|United States|Germany|United Kingdom|France|Japan|Canada|Netherlands|Australia|Singapore|Brazil'),
+    log_appid   = svc.appid,
+    log_app     = svc.app,
+    log_appcat  = svc.appcat,
+    log_apprisk = svc.apprisk,
+    srcport     = integer(1024, 65535),
+    dstport     = svc.dstport,
+    proto       = svc.proto,
+    sessionid   = integer(1000000, 99999999),
+    policyid    = integer(1, 20),
+    duration    = integer(1, 300),
+    sentbyte    = integer(64, 1048576),
+    rcvdbyte    = integer(64, 5242880),
+    sentpkt     = integer(1, 1000),
+    rcvdpkt     = integer(1, 5000)
+) -%}
+
+{%- if log_kind == 'traffic_fwd' -%}
+    {#- namespace defaults already cover traffic_fwd -#}
+
+{%- elif log_kind == 'traffic_local' -%}
+    {%- set n.log_sub     = 'local' -%}
+    {%- set n.logid       = '0001000014' -%}
+    {%- set n.log_action  = randoms('server-rst|accept|deny|close') -%}
+    {%- set n.log_level   = 'notice' -%}
+    {%- set n.policytype  = 'local-in-policy' -%}
+    {%- set n.policymode  = 'flow' -%}
+    {%- set n.poluuid_val = guid() -%}
+    {%- set n.trandisp    = 'noop' -%}
+    {%- set n.srccountry  = '' -%}
+    {%- set n.dstcountry  = '' -%}
+    {%- set n.log_appid   = 0 -%}
+    {%- set n.log_app     = '' -%}
+    {%- set n.log_appcat  = '' -%}
+    {%- set n.log_apprisk = '' -%}
+    {%- set n.policyid    = 0 -%}
+
+{%- elif log_kind == 'utm_webfilter' -%}
+    {%- set n.log_type    = 'utm' -%}
+    {%- set n.log_sub     = 'webfilter' -%}
+    {%- set n.logid       = '0316013056' -%}
+    {%- set n.log_action  = randoms('blocked|blocked|allowed|allowed|allowed|monitored') -%}
+    {%- set n.log_level   = 'warning' if n.log_action == 'blocked' else 'notice' -%}
+    {%- set n.policymode  = 'proxy' -%}
+    {%- set n.poluuid_val = guid() -%}
+    {%- set n.trandisp    = 'noop' -%}
+    {%- set n.srccountry  = '' -%}
+    {%- set n.dstcountry  = '' -%}
+    {%- set n.log_appid   = 0 -%}
+    {%- set n.log_app     = '' -%}
+    {%- set n.log_appcat  = '' -%}
+    {%- set n.log_apprisk = '' -%}
+
+{%- elif log_kind == 'utm_virus' -%}
+    {%- set n.log_type    = 'utm' -%}
+    {%- set n.log_sub     = 'virus' -%}
+    {%- set n.logid       = '0211008192' -%}
+    {%- set n.log_action  = 'blocked' -%}
+    {%- set n.log_level   = randoms('warning|warning|critical') -%}
+    {%- set n.policymode  = 'proxy' -%}
+    {%- set n.poluuid_val = guid() -%}
+    {%- set n.trandisp    = 'noop' -%}
+    {%- set n.srccountry  = '' -%}
+    {%- set n.dstcountry  = '' -%}
+    {%- set n.log_appid   = 0 -%}
+    {%- set n.log_app     = '' -%}
+    {%- set n.log_appcat  = '' -%}
+    {%- set n.log_apprisk = '' -%}
+
+{%- elif log_kind == 'utm_dns' -%}
+    {%- set n.log_type    = 'utm' -%}
+    {%- set n.log_sub     = 'dns' -%}
+    {%- set n.logid       = '1501054802' -%}
+    {%- set n.log_action  = randoms('pass|pass|pass|blocked') -%}
+    {%- set n.log_level   = 'warning' if n.log_action == 'blocked' else 'notice' -%}
+    {%- set n.poluuid_val = guid() -%}
+    {%- set n.log_service = 'DNS' -%}
+    {%- set n.proto       = 17 -%}
+    {%- set n.dstport     = 53 -%}
+    {%- set n.trandisp    = 'noop' -%}
+    {%- set n.srccountry  = '' -%}
+    {%- set n.dstcountry  = '' -%}
+    {%- set n.log_appid   = 0 -%}
+    {%- set n.log_app     = '' -%}
+    {%- set n.log_appcat  = '' -%}
+    {%- set n.log_apprisk = '' -%}
+
+{%- elif log_kind == 'utm_ips' -%}
+    {%- set n.log_type    = 'utm' -%}
+    {%- set n.log_sub     = 'ips' -%}
+    {%- set n.logid       = '0419016384' -%}
+    {%- set n.log_action  = randoms('dropped|dropped|reset|pass|blocked') -%}
+    {%- set n.log_level   = randoms('warning|warning|critical|alert') -%}
+    {%- set n.poluuid_val = guid() -%}
+    {%- set n.policymode  = 'flow' -%}
+    {%- set n.trandisp    = 'noop' -%}
+    {%- set n.srccountry  = '' -%}
+    {%- set n.dstcountry  = '' -%}
+    {%- set n.log_appid   = 0 -%}
+    {%- set n.log_app     = '' -%}
+    {%- set n.log_appcat  = '' -%}
+    {%- set n.log_apprisk = '' -%}
+
+{%- elif log_kind == 'event_system' -%}
+    {%- set n.log_type    = 'event' -%}
+    {%- set n.log_sub     = 'system' -%}
+    {%- set n.logid       = '0100032001' -%}
+    {%- set n.log_action  = randoms('login|logout|config-change|upgrade|ha-failover') -%}
+    {%- set n.log_level   = randoms('information|information|notice|warning') -%}
+
+{%- elif log_kind == 'event_vpn' -%}
+    {%- set n.log_type    = 'event' -%}
+    {%- set n.log_sub     = 'vpn' -%}
+    {%- set n.logid       = '0101037138' -%}
+    {%- set n.log_action  = randoms('tunnel-up|tunnel-up|tunnel-down|negotiate') -%}
+    {%- set n.log_level   = 'notice' -%}
+    {%- set n.srcport     = 500 -%}
+    {%- set n.dstport     = 500 -%}
+    {%- set n.proto       = 17 -%}
+    {%- set n.sessionid   = 0 -%}
+    {%- set n.duration    = integer(0, 86400) -%}
+    {%- set n.sentbyte    = integer(0, 10485760) -%}
+    {%- set n.rcvdbyte    = integer(0, 10485760) -%}
+
+{%- else -%}
+    {#- event_user -#}
+    {%- set n.log_type    = 'event' -%}
+    {%- set n.log_sub     = 'user' -%}
+    {%- set n.logid       = '0102043008' -%}
+    {%- set n.log_action  = 'authentication' -%}
+    {%- set n.log_level   = 'notice' -%}
+    {%- set n.policytype  = 'policy' -%}
+    {%- set n.policyid    = integer(1, 20) -%}
+    {%- set n.srcport     = integer(1024, 65535) -%}
+    {%- set n.proto       = 6 -%}
+{%- endif -%}
+{#- ── Output ─────────────────────────────────────────────────────────────── -#}
+date={{ strftime('%Y-%m-%d') }} time={{ strftime('%H:%M:%S') }} devname="{{ devname }}" devid="{{ pool('fortigates', devname, 'devid') }}" logid="{{ n.logid }}" type="{{ n.log_type }}" subtype="{{ n.log_sub }}" level="{{ n.log_level }}" vd="{{ pool('fortigates', devname, 'vd') }}" eventtime={{ strftime('%s') }}{% if log_kind != 'event_system' %} srcip={{ pool('fortigates', devname, 'srcip') }} srcport={{ n.srcport }} srcintf="{{ pool('fortigates', devname, 'srcintf') }}" srcintfrole="{{ pool('fortigates', devname, 'srcintfrole') }}" dstip={{ dst_ip }} dstport={{ n.dstport }} dstintf="{{ pool('fortigates', devname, 'dstintf') }}" dstintfrole="{{ pool('fortigates', devname, 'dstintfrole') }}"{% endif %}{% if log_kind not in ['event_system', 'event_vpn'] %} sessionid={{ n.sessionid }} proto={{ n.proto }}{% endif %}{% if log_kind != 'event_system' %} action="{{ n.log_action }}"{% if n.policyid is defined %} policyid={{ n.policyid }}{% endif %}{% if n.policytype %} policytype="{{ n.policytype }}"{% endif %}{% if n.poluuid_val %} poluuid="{{ n.poluuid_val }}"{% endif %}{% if n.log_service %} service="{{ n.log_service }}"{% endif %}{% endif %}{% if log_kind == 'traffic_fwd' %} trandisp="{{ n.trandisp }}"{% if n.trandisp == 'snat' %} transip={{ pool('fortigates', devname, 'transip') }} transport={{ n.srcport }}{% endif %} srccountry="{{ n.srccountry }}" dstcountry="{{ n.dstcountry }}"{% if n.log_appid %} appid={{ n.log_appid }} app="{{ n.log_app }}" appcat="{{ n.log_appcat }}" apprisk="{{ n.log_apprisk }}"{% endif %} duration={{ n.duration }} sentbyte={{ n.sentbyte }} rcvdbyte={{ n.rcvdbyte }} sentpkt={{ n.sentpkt }} rcvdpkt={{ n.rcvdpkt }}{% elif log_kind == 'traffic_local' %} trandisp="{{ n.trandisp }}" duration={{ n.duration }} sentbyte={{ n.sentbyte }} rcvdbyte={{ n.rcvdbyte }} sentpkt={{ n.sentpkt }} rcvdpkt={{ n.rcvdpkt }}{% elif log_kind == 'utm_webfilter' %} profile="{{ randoms('g-default|strict-web|corporate-policy|outbound-utm') }}" user="{{ src_user }}" hostname="{{ randoms('www.google.com|api.github.com|news.bbc.co.uk|malware-c2.example.net|phishing-login.xyz|cdn.cloudflare.com|update.microsoft.com') }}" url="{{ randoms('/|/search?q=fortigate|/api/v1/status|/wp-admin/admin-ajax.php|/download/update.exe|/login|/index.php') }}" reqtype="{{ randoms('direct|referral|direct') }}" method="{{ randoms('domain|url|domain') }}" cat={{ randoms('52|26|7|17|61|88') | int }} catdesc="{{ randoms('Information Technology|Malicious Websites|Armed Forces|General Interest|Shopping|Games') }}" direction="outgoing" sentbyte={{ n.sentbyte }} rcvdbyte={{ n.rcvdbyte }} crscore={{ integer(0, 80) }} crlevel="{{ randoms('low|medium|medium|high|critical') }}" msg="URL belongs to a {{ 'denied' if n.log_action == 'blocked' else 'allowed' }} category in policy"{% elif log_kind == 'utm_virus' %} profile="{{ randoms('g-default|av-strict|corporate-av') }}" user="{{ src_user }}" direction="{{ randoms('incoming|outgoing') }}" virus="{{ randoms('Win32/Emotet.A|Linux/Mirai.A|Ransomware.Ryuk.B|Trojan.GenericKD.47501847|EICAR_TEST_FILE|JS/Redirector.NIQ') }}" virusid={{ integer(1000, 9999) }} filename="{{ randoms('invoice_March.pdf.exe|setup_update_v2.msi|free_crack.zip|document.docm|report_final.xlsm') }}" dtype="{{ randoms('Virus|Botnet|Ransomware|Trojan|Adware') }}" quarskip="{{ randoms('File-was-not-quarantined.|Quarantine-failed.|File-was-quarantined.') }}" analyticscksum="{{ regex('[0-9a-f]{64}') }}" crscore={{ integer(50, 100) }} crlevel="{{ randoms('high|critical|critical') }}" msg="File is infected."{% elif log_kind == 'utm_dns' %} profile="{{ randoms('DNSProfile|dns-strict|g-default') }}" qname="{{ randoms('www.google.com|api.github.com|edge.microsoft.com|malware-c2.example.net|botnet.tracker.io|www.fortinet.com|telemetry.evil.ru') }}" qtype="{{ randoms('A|A|A|A|AAAA|MX|TXT|CNAME') }}" qtypeval={{ randoms('1|1|1|28|15|16|5') | int }} qclass="IN" xid={{ integer(1, 65535) }} ipaddr="{{ ip(randoms('13.32.0.0/15|34.0.0.0/8|52.0.0.0/8|172.217.0.0/16|104.16.0.0/12')) }}" cat={{ randoms('52|26|7|17|61') | int }} catdesc="{{ randoms('Information Technology|Malicious Websites|Armed Forces|General Interest|Shopping') }}" msg="Domain is {{ 'blocked' if n.log_action == 'blocked' else 'monitored' }}"{% elif log_kind == 'utm_ips' %} profile="{{ randoms('g-default|ips-strict|protect-client|protect-server') }}" direction="{{ randoms('incoming|outgoing') }}" signature="{{ randoms('MS.Windows.SMB.Trans2.Remote.Code.Execution|Apache.Log4j.JNDI.Log.Remote.Code.Execution|OS.SSH.Brute.Force.Login.Attempt|Web.Server.SQL.Injection.Attempt|Browser.Heartbleed.SSL.Vulnerability') }}" sigid={{ integer(10000, 49999) }} severity="{{ randoms('medium|high|high|critical|critical') }}" attack="{{ randoms('Exploit|Brute-Force|SQL-Injection|Buffer-Overflow|Command-Injection') }}" crscore={{ integer(40, 100) }} crlevel="{{ randoms('medium|high|critical') }}" msg="IPS signature matched"{% elif log_kind == 'event_system' %} user="{{ randoms('admin|admin|admin|readonly-admin|super_admin') }}" ui="{{ randoms('console|ssh(10.0.0.5)|https(192.168.1.10)|web(172.16.0.1)') }}" action="{{ n.log_action }}" status="{{ randoms('success|success|success|failed') }}" reason="{{ randoms('none|none|bad-passwd|admin-lockout') }}" logdesc="Admin {{ n.log_action }} event" msg="Administrator {{ n.log_action }} successfully"{% elif log_kind == 'event_vpn' %} user="{{ src_user }}" group="{{ randoms('ipsecgrp|ssl-vpn-users|remote-workers') }}" remip={{ ip(randoms('50.1.0.0/16|203.0.113.0/24|185.220.0.0/16')) }} locip={{ pool('fortigates', devname, 'transip') }} remport=500 locport=500 outintf="{{ pool('fortigates', devname, 'dstintf') }}" vpntunnel="{{ randoms('VPN-HQ-to-BR01|VPN-HQ-to-BR02|Remote-VPN-SSL|Site-to-Site-AWS') }}" tunnelid={{ integer(100000000, 999999999) }} tunneltype="{{ randoms('ipsec|ipsec|ssl') }}" assignip={{ ip('10.99.0.0/24') }} status="{{ 'success' if n.log_action == 'tunnel-up' else randoms('success|failed') }}" duration={{ n.duration }} sentbyte={{ n.sentbyte }} rcvdbyte={{ n.rcvdbyte }} logdesc="IPsec connection status changed" msg="IPsec connection status change"{% else %} user="{{ src_user }}" group="{{ randoms('local-group1|domain-users|vpn-users|admins') }}" authproto="{{ randoms('TELNET|SSH|HTTPS|RADIUS|LDAP|SAML') }}({{ pool('fortigates', devname, 'srcip') }})" interface="{{ pool('fortigates', devname, 'srcintf') }}" status="{{ randoms('success|success|success|failed') }}" reason="{{ randoms('N/A|N/A|bad-passwd|account-locked') }}" logdesc="Authentication event" msg="User {{ src_user }} authentication {{ randoms('success|success|failed') }}"{% endif %}
