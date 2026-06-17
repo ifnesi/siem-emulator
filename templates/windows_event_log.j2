@@ -1,0 +1,129 @@
+{#- Windows Event Log — modeled on the Windows Event Viewer field set described
+    in the SolarWinds "Windows Event Log" glossary:
+      * Five log categories: Application, Security, System, Setup, Forwarded Events
+      * Severity levels: Information, Warning, Error, Critical, Audit Success/Failure
+      * Standard entry fields: Logged, Log Name, Source, Event ID, Level, User,
+        OpCode, Task Category, Keywords, Computer, Description
+    Emits one flattened JSON object per line; use with --no-schema. -#}
+
+{#- ── Host pool (consistent IP per computer) ──────────────────────────────── -#}
+{%- set host_configs = {} -%}
+{%- for cfg in [
+    {'computer': 'WIN-DC01.corp.local',   'subnet': '10.10.0.0/24'},
+    {'computer': 'WIN-DC02.corp.local',   'subnet': '10.10.0.0/24'},
+    {'computer': 'WIN-FS01.corp.local',   'subnet': '10.10.1.0/24'},
+    {'computer': 'WIN-SQL01.corp.local',  'subnet': '10.10.2.0/24'},
+    {'computer': 'WIN-EXCH01.corp.local', 'subnet': '10.10.3.0/24'},
+    {'computer': 'WIN-WEB01.corp.local',  'subnet': '10.10.4.0/24'},
+    {'computer': 'WS-FIN-01.corp.local',  'subnet': '10.20.1.0/24'},
+    {'computer': 'WS-HR-01.corp.local',   'subnet': '10.20.2.0/24'},
+    {'computer': 'WS-IT-01.corp.local',   'subnet': '10.20.3.0/24'},
+    {'computer': 'WS-DEV-07.corp.local',  'subnet': '10.20.4.0/24'},
+    {'computer': 'WS-MKT-01.corp.local',  'subnet': '10.20.5.0/24'},
+    {'computer': 'LAPTOP-SALES-12.corp.local', 'subnet': '10.30.0.0/24'},
+    {'computer': 'LAPTOP-EXEC-01.corp.local',  'subnet': '10.30.1.0/24'},
+    {'computer': 'WIN-DC03.corp.local',   'subnet': '10.10.0.0/24'},
+    {'computer': 'WIN-FS02.corp.local',   'subnet': '10.10.1.0/24'},
+    {'computer': 'WIN-SQL02.corp.local',  'subnet': '10.10.2.0/24'},
+    {'computer': 'WIN-EXCH02.corp.local', 'subnet': '10.10.3.0/24'},
+    {'computer': 'WIN-WEB02.corp.local',  'subnet': '10.10.4.0/24'},
+    {'computer': 'WIN-APP01.corp.local',  'subnet': '10.10.5.0/24'},
+    {'computer': 'WIN-APP02.corp.local',  'subnet': '10.10.5.0/24'},
+    {'computer': 'WIN-CA01.corp.local',   'subnet': '10.10.6.0/24'},
+    {'computer': 'WIN-PRINT01.corp.local','subnet': '10.10.7.0/24'},
+    {'computer': 'WS-FIN-02.corp.local',  'subnet': '10.20.1.0/24'},
+    {'computer': 'WS-FIN-03.corp.local',  'subnet': '10.20.1.0/24'},
+    {'computer': 'WS-HR-02.corp.local',   'subnet': '10.20.2.0/24'},
+    {'computer': 'WS-IT-02.corp.local',   'subnet': '10.20.3.0/24'},
+    {'computer': 'WS-IT-03.corp.local',   'subnet': '10.20.3.0/24'},
+    {'computer': 'WS-DEV-08.corp.local',  'subnet': '10.20.4.0/24'},
+    {'computer': 'WS-DEV-09.corp.local',  'subnet': '10.20.4.0/24'},
+    {'computer': 'WS-MKT-02.corp.local',  'subnet': '10.20.5.0/24'},
+    {'computer': 'WS-OPS-01.corp.local',  'subnet': '10.20.6.0/24'},
+    {'computer': 'WS-OPS-02.corp.local',  'subnet': '10.20.6.0/24'},
+    {'computer': 'LAPTOP-SALES-13.corp.local', 'subnet': '10.30.0.0/24'},
+    {'computer': 'LAPTOP-EXEC-02.corp.local',  'subnet': '10.30.1.0/24'}
+] -%}
+    {%- set _ = host_configs.update({cfg.computer: {'ip': ip(cfg.subnet)}}) -%}
+{%- endfor -%}
+{%- set _ = init_pool('wineventhosts', host_configs) -%}
+{%- set computer = randoms(host_configs.keys()|list) -%}
+
+{%- set domain = 'CORP' -%}
+{%- set acct   = randoms(data.users) -%}
+
+{#- ── Pick one of the five Event Viewer log categories ────────────────────── -#}
+{%- set log_name = randoms('Application|Application|Security|Security|Security|System|System|Setup|ForwardedEvents') -%}
+
+{%- if log_name == 'Application' -%}
+    {%- set choices = [
+        {'source': 'Application Error',         'eventid': 1000, 'level': 'Error',       'task': 'Application Crashing Events', 'keywords': 'Classic', 'opcode': 'Info', 'desc': 'Faulting application name: OUTLOOK.EXE, version 16.0.17328.20124, faulting module ntdll.dll. Exception code: 0xc0000005.'},
+        {'source': '.NET Runtime',              'eventid': 1026, 'level': 'Error',       'task': 'None',                        'keywords': 'Classic', 'opcode': 'Info', 'desc': 'Application: w3wp.exe Unhandled exception System.NullReferenceException at MyApp.Handler.Process().'},
+        {'source': 'MSSQLSERVER',               'eventid': 17137,'level': 'Information', 'task': 'Server',                      'keywords': 'Classic', 'opcode': 'Info', 'desc': 'Starting up database tempdb.'},
+        {'source': 'Windows Error Reporting',   'eventid': 1001, 'level': 'Information', 'task': 'None',                        'keywords': 'Classic', 'opcode': 'Info', 'desc': 'Fault bucket 123456789, type 5. Event Name: APPCRASH.'},
+        {'source': 'ESENT',                     'eventid': 326,  'level': 'Information', 'task': 'General',                     'keywords': 'Classic', 'opcode': 'Info', 'desc': 'svchost (1234) The database engine attached a database.'}
+    ] -%}
+    {%- set ev = randoms(choices) -%}
+    {%- set user = randoms('N/A|CORP\\' ~ acct) -%}
+
+{%- elif log_name == 'Security' -%}
+    {%- set choices = [
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 4624, 'level': 'Information', 'task': 'Logon',                    'keywords': 'Audit Success', 'opcode': 'Info', 'desc': 'An account was successfully logged on.'},
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 4625, 'level': 'Information', 'task': 'Logon',                    'keywords': 'Audit Failure', 'opcode': 'Info', 'desc': 'An account failed to log on. Failure Reason: Unknown user name or bad password.'},
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 4634, 'level': 'Information', 'task': 'Logoff',                   'keywords': 'Audit Success', 'opcode': 'Info', 'desc': 'An account was logged off.'},
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 4688, 'level': 'Information', 'task': 'Process Creation',         'keywords': 'Audit Success', 'opcode': 'Info', 'desc': 'A new process has been created: C:\\Windows\\System32\\cmd.exe.'},
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 4672, 'level': 'Information', 'task': 'Special Logon',            'keywords': 'Audit Success', 'opcode': 'Info', 'desc': 'Special privileges assigned to new logon.'},
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 1102, 'level': 'Information', 'task': 'Log clear',               'keywords': 'Audit Success', 'opcode': 'Info', 'desc': 'The audit log was cleared.'}
+    ] -%}
+    {%- set ev = randoms(choices) -%}
+    {%- set user = randoms('SYSTEM|CORP\\' ~ acct ~ '|CORP\\' ~ acct) -%}
+
+{%- elif log_name == 'System' -%}
+    {%- set choices = [
+        {'source': 'Service Control Manager',           'eventid': 7045, 'level': 'Information', 'task': 'None',           'keywords': 'Classic', 'opcode': 'Info', 'desc': 'A service was installed in the system: WinUpdateSvc.'},
+        {'source': 'Service Control Manager',           'eventid': 7036, 'level': 'Information', 'task': 'None',           'keywords': 'Classic', 'opcode': 'Info', 'desc': 'The Windows Update service entered the running state.'},
+        {'source': 'Service Control Manager',           'eventid': 7031, 'level': 'Error',       'task': 'None',           'keywords': 'Classic', 'opcode': 'Info', 'desc': 'The Print Spooler service terminated unexpectedly.'},
+        {'source': 'Microsoft-Windows-Kernel-Power',    'eventid': 41,   'level': 'Critical',    'task': '(63)',           'keywords': 'None',    'opcode': 'Info', 'desc': 'The system has rebooted without cleanly shutting down first.'},
+        {'source': 'EventLog',                          'eventid': 6008, 'level': 'Error',       'task': 'None',           'keywords': 'Classic', 'opcode': 'Info', 'desc': 'The previous system shutdown was unexpected.'},
+        {'source': 'Microsoft-Windows-DNS-Client',      'eventid': 1014, 'level': 'Warning',     'task': 'None',           'keywords': 'None',    'opcode': 'Info', 'desc': 'Name resolution for the name updates.microsoft.com timed out.'}
+    ] -%}
+    {%- set ev = randoms(choices) -%}
+    {%- set user = randoms('SYSTEM|SYSTEM|LOCAL SERVICE|N/A') -%}
+
+{%- elif log_name == 'Setup' -%}
+    {%- set choices = [
+        {'source': 'Microsoft-Windows-Servicing',  'eventid': 2,   'level': 'Information', 'task': 'None', 'keywords': 'None', 'opcode': 'Info', 'desc': 'Package KB5039212 was successfully changed to the Installed state.'},
+        {'source': 'Microsoft-Windows-WUSA',        'eventid': 3,   'level': 'Information', 'task': 'None', 'keywords': 'None', 'opcode': 'Info', 'desc': 'Windows update "Security Update for Windows" was installed successfully.'},
+        {'source': 'Microsoft-Windows-Servicing',  'eventid': 4,   'level': 'Warning',     'task': 'None', 'keywords': 'None', 'opcode': 'Info', 'desc': 'Initiating changes for package KB5039212. Current state is Absent.'}
+    ] -%}
+    {%- set ev = randoms(choices) -%}
+    {%- set user = randoms('SYSTEM|NT AUTHORITY\\SYSTEM') -%}
+
+{%- else -%}
+    {#- Forwarded Events — events collected from other hosts via WEF -#}
+    {%- set choices = [
+        {'source': 'Microsoft-Windows-Security-Auditing', 'eventid': 4625, 'level': 'Information', 'task': 'Logon',            'keywords': 'Audit Failure', 'opcode': 'Info', 'desc': 'An account failed to log on (forwarded).'},
+        {'source': 'Microsoft-Windows-Sysmon',            'eventid': 1,    'level': 'Information', 'task': 'Process Create',   'keywords': 'None',          'opcode': 'Info', 'desc': 'Process Create (forwarded): powershell.exe -enc ...'},
+        {'source': 'Microsoft-Windows-Windows Defender',  'eventid': 1116, 'level': 'Warning',     'task': 'None',            'keywords': 'None',          'opcode': 'Info', 'desc': 'Windows Defender detected malware: Trojan:Win32/Wacatac.B!ml (forwarded).'}
+    ] -%}
+    {%- set ev = randoms(choices) -%}
+    {%- set user = randoms('SYSTEM|CORP\\' ~ acct) -%}
+{%- endif -%}
+
+{#- ── Output: flattened JSON with the Event Viewer field set ──────────────── -#}
+{%- set evt = {} -%}
+{%- set _ = evt.update({
+    'Logged': strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+    'LogName': log_name,
+    'Source': ev.source,
+    'EventID': ev.eventid,
+    'Level': ev.level,
+    'User': user,
+    'OpCode': ev.opcode,
+    'TaskCategory': ev.task,
+    'Keywords': ev.keywords,
+    'Computer': computer,
+    'EventRecordID': integer(100000, 9999999),
+    'Description': ev.desc
+}) -%}
+{{ evt | tojson }}
