@@ -1,0 +1,140 @@
+{
+  "type": "record",
+  "name": "WindowsSysmon3",
+  "namespace": "com.confluent.siem.windows",
+  "doc": "Windows Microsoft-Windows-Sysmon/Operational EventID 3",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "EventID",
+      "type": "long"
+    },
+    {
+      "name": "Channel",
+      "type": "string"
+    },
+    {
+      "name": "Provider",
+      "type": "string"
+    },
+    {
+      "name": "Computer",
+      "type": "string"
+    },
+    {
+      "name": "Hostname",
+      "type": "string"
+    },
+    {
+      "name": "EventRecordID",
+      "type": "long"
+    },
+    {
+      "name": "Level",
+      "type": "string"
+    },
+    {
+      "name": "Task",
+      "type": "string"
+    },
+    {
+      "name": "Opcode",
+      "type": "string"
+    },
+    {
+      "name": "Keywords",
+      "type": "string"
+    },
+    {
+      "name": "ProcessId",
+      "type": "long"
+    },
+    {
+      "name": "ThreadId",
+      "type": "long"
+    },
+    {
+      "name": "Message",
+      "type": "string"
+    },
+    {
+      "name": "EventData",
+      "type": {
+        "type": "record",
+        "name": "EventDataSysmon3",
+        "fields": [
+          {
+            "name": "Image",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "User",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "Protocol",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "SourceIp",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "SourcePort",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "DestinationIp",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "DestinationPort",
+            "type": [
+              "null",
+              "long"
+            ],
+            "default": null
+          },
+          {
+            "name": "DestinationHostname",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "type": "record",
+  "name": "DnsAggregate",
+  "namespace": "com.confluent.siem.dns",
+  "doc": "Windowed aggregate of DNS logs, grouped by src_ip/qtype/rcode/protocol over a fixed event-time tumbling window.",
+  "fields": [
+    {
+      "name": "window_start",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Fixed window start (inclusive), clock-aligned, e.g. 10:00:00.000"
+    },
+    {
+      "name": "window_end",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Fixed window end (inclusive), window_start + size - 1ms, e.g. 10:04:59.999"
+    },
+    {
+      "name": "ts_first",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Earliest event ts actually observed in the window for this group"
+    },
+    {
+      "name": "ts_last",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Latest event ts actually observed in the window for this group"
+    },
+    {"name": "event_type", "type": "string"},
+    {"name": "src_ip", "type": "string"},
+    {"name": "qtype", "type": "string"},
+    {"name": "rcode", "type": "string"},
+    {"name": "protocol", "type": "string"},
+    {"name": "event_count", "type": "long", "doc": "Number of raw DNS events in this group/window"},
+    {"name": "latency_ms_avg", "type": "double", "doc": "Mean latency_ms across the group"},
+    {"name": "answer_count", "type": "long", "doc": "Sum of answer_count"},
+    {"name": "authority_count", "type": "long", "doc": "Sum of authority_count"},
+    {"name": "additional_count", "type": "long", "doc": "Sum of additional_count"}
+  ]
+}

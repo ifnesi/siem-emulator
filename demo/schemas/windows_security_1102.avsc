@@ -1,0 +1,100 @@
+{
+  "type": "record",
+  "name": "WindowsSecurity1102",
+  "namespace": "com.confluent.siem.windows",
+  "doc": "Windows Security EventID 1102",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "EventID",
+      "type": "long"
+    },
+    {
+      "name": "Channel",
+      "type": "string"
+    },
+    {
+      "name": "Provider",
+      "type": "string"
+    },
+    {
+      "name": "Computer",
+      "type": "string"
+    },
+    {
+      "name": "Hostname",
+      "type": "string"
+    },
+    {
+      "name": "EventRecordID",
+      "type": "long"
+    },
+    {
+      "name": "Level",
+      "type": "string"
+    },
+    {
+      "name": "Task",
+      "type": "string"
+    },
+    {
+      "name": "Opcode",
+      "type": "string"
+    },
+    {
+      "name": "Keywords",
+      "type": "string"
+    },
+    {
+      "name": "ProcessId",
+      "type": "long"
+    },
+    {
+      "name": "ThreadId",
+      "type": "long"
+    },
+    {
+      "name": "Message",
+      "type": "string"
+    },
+    {
+      "name": "EventData",
+      "type": {
+        "type": "record",
+        "name": "EventDataSecurity1102",
+        "fields": [
+          {
+            "name": "SubjectUserName",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "SubjectDomainName",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "SubjectLogonId",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          }
+        ]
+      }
+    }
+  ]
+}

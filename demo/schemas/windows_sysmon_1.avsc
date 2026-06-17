@@ -1,0 +1,140 @@
+{
+  "type": "record",
+  "name": "WindowsSysmon1",
+  "namespace": "com.confluent.siem.windows",
+  "doc": "Windows Microsoft-Windows-Sysmon/Operational EventID 1",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "EventID",
+      "type": "long"
+    },
+    {
+      "name": "Channel",
+      "type": "string"
+    },
+    {
+      "name": "Provider",
+      "type": "string"
+    },
+    {
+      "name": "Computer",
+      "type": "string"
+    },
+    {
+      "name": "Hostname",
+      "type": "string"
+    },
+    {
+      "name": "EventRecordID",
+      "type": "long"
+    },
+    {
+      "name": "Level",
+      "type": "string"
+    },
+    {
+      "name": "Task",
+      "type": "string"
+    },
+    {
+      "name": "Opcode",
+      "type": "string"
+    },
+    {
+      "name": "Keywords",
+      "type": "string"
+    },
+    {
+      "name": "ProcessId",
+      "type": "long"
+    },
+    {
+      "name": "ThreadId",
+      "type": "long"
+    },
+    {
+      "name": "Message",
+      "type": "string"
+    },
+    {
+      "name": "EventData",
+      "type": {
+        "type": "record",
+        "name": "EventDataSysmon1",
+        "fields": [
+          {
+            "name": "Image",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "CommandLine",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "User",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "ParentImage",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "ProcessId",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "ProcessGuid",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "Hashes",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "IntegrityLevel",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          }
+        ]
+      }
+    }
+  ]
+}

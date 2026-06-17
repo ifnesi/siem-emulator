@@ -1,0 +1,100 @@
+{
+  "type": "record",
+  "name": "WindowsPowershell4104",
+  "namespace": "com.confluent.siem.windows",
+  "doc": "Windows Microsoft-Windows-PowerShell/Operational EventID 4104",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "EventID",
+      "type": "long"
+    },
+    {
+      "name": "Channel",
+      "type": "string"
+    },
+    {
+      "name": "Provider",
+      "type": "string"
+    },
+    {
+      "name": "Computer",
+      "type": "string"
+    },
+    {
+      "name": "Hostname",
+      "type": "string"
+    },
+    {
+      "name": "EventRecordID",
+      "type": "long"
+    },
+    {
+      "name": "Level",
+      "type": "string"
+    },
+    {
+      "name": "Task",
+      "type": "string"
+    },
+    {
+      "name": "Opcode",
+      "type": "string"
+    },
+    {
+      "name": "Keywords",
+      "type": "string"
+    },
+    {
+      "name": "ProcessId",
+      "type": "long"
+    },
+    {
+      "name": "ThreadId",
+      "type": "long"
+    },
+    {
+      "name": "Message",
+      "type": "string"
+    },
+    {
+      "name": "EventData",
+      "type": {
+        "type": "record",
+        "name": "EventDataPowershell4104",
+        "fields": [
+          {
+            "name": "ScriptBlockText",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "Path",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          },
+          {
+            "name": "ScriptBlockId",
+            "type": [
+              "null",
+              "string"
+            ],
+            "default": null
+          }
+        ]
+      }
+    }
+  ]
+}

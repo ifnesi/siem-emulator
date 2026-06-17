@@ -1,0 +1,103 @@
+{
+  "type": "record",
+  "name": "EventSystem",
+  "namespace": "com.confluent.siem.fortigate",
+  "doc": "FortiGate event/system event",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "devname",
+      "type": "string"
+    },
+    {
+      "name": "devid",
+      "type": "string"
+    },
+    {
+      "name": "logid",
+      "type": "string"
+    },
+    {
+      "name": "type",
+      "type": "string"
+    },
+    {
+      "name": "subtype",
+      "type": "string"
+    },
+    {
+      "name": "level",
+      "type": "string"
+    },
+    {
+      "name": "vd",
+      "type": "string"
+    },
+    {
+      "name": "eventtime",
+      "type": "long"
+    },
+    {
+      "name": "user",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "ui",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "action",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "status",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "reason",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "logdesc",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "msg",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}

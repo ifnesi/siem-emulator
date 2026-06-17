@@ -2,7 +2,6 @@
 .venv/
 venv/
 env/
-demo/
 
 # Python cache
 __pycache__/
@@ -30,3 +29,6 @@ notes.txt
 kafka/
 !kafka/config.properties
 !kafka/registry.properties
+
+# Kafka Config files (Demo)
+demo/config/
