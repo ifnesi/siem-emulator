@@ -664,9 +664,9 @@ def main() -> None:
         "-s",
         "--schema-id-location",
         choices=["headers", "body"],
-        default="headers",
+        default="body",
         help=(
-            "Where to place the Avro schema ID. 'headers' (default, modern) "
+            "Where to place the Avro schema ID. 'headers' (modern) "
             "stores it in the Kafka message headers; 'body' (legacy) prefixes "
             "it to the serialized value with the 5-byte magic-byte framing."
         ),
