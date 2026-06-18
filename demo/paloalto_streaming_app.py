@@ -43,6 +43,8 @@ from utils import (
     ensure_topics,
     load_properties,
     setup_logging,
+    graceful_shutdown,
+    string_serializer,
 )
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
@@ -311,7 +313,7 @@ def main():
     admin = AdminClient(kafka_conf)
     ensure_topics(admin, [args.source_topic] + dest_topics, args.retention_ms)
 
-    key_serializer = StringSerializer("utf_8")
+    key_serializer = string_serializer()
     producer = Producer(kafka_conf)
 
     consumer_conf = dict(kafka_conf)
@@ -326,92 +328,84 @@ def main():
     consumer = Consumer(consumer_conf)
     consumer.subscribe([args.source_topic])
 
-    running = {"flag": True}
-
-    def _stop(signum, frame):  # noqa: ARG001
-        logger.info("Shutdown signal received, stopping...")
-        running["flag"] = False
-
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
     stats = {"routed": 0, "skipped": 0, "errors": 0}
     logger.info(
         "Routing from '%s' -> '%s-<type>-<subtype>' (Ctrl+C to stop)",
         args.source_topic,
         TOPIC_PREFIX,
     )
-    try:
-        while running["flag"]:
-            msg = consumer.poll(POLL_TIMEOUT)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+    with graceful_shutdown("Shutdown signal received, stopping") as running:
+        try:
+            while running["flag"]:
+                msg = consumer.poll(POLL_TIMEOUT)
+                if msg is None:
                     continue
-                logger.error("Consumer error: %s", msg.error())
-                continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    logger.error("Consumer error: %s", msg.error())
+                    continue
 
-            raw = msg.value().decode("utf-8", errors="replace").strip()
-            fields = raw.split(",")
-            # PAN-OS CSV: idx 3 = log type, idx 4 = subtype.
-            log_type = fields[3] if len(fields) > 4 else None
-            subtype = fields[4] if len(fields) > 4 else None
-            route = routes.get((log_type, subtype))
-            if route is None:
+                raw = msg.value().decode("utf-8", errors="replace").strip()
+                fields = raw.split(",")
+                # PAN-OS CSV: idx 3 = log type, idx 4 = subtype.
+                log_type = fields[3] if len(fields) > 4 else None
+                subtype = fields[4] if len(fields) > 4 else None
+                route = routes.get((log_type, subtype))
+                if route is None:
+                    logger.warning(
+                        "No route for type=%s subtype=%s — skipping", log_type, subtype
+                    )
+                    stats["skipped"] += 1
+                    continue
+
+                record = build_record(route["layout"], fields)
+                key = record.get(KEY_FIELD) or "unknown"
+                try:
+                    value = route["serializer"](
+                        record,
+                        SerializationContext(
+                            route["topic"],
+                            MessageField.VALUE,
+                        ),
+                    )
+                    producer.produce(
+                        topic=route["topic"],
+                        key=key_serializer(key),
+                        value=value,
+                    )
+                    producer.poll(0)
+                    stats["routed"] += 1
+                except BufferError:
+                    producer.flush(5)
+                    stats["errors"] += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.error(
+                        "Failed to route event (type=%s subtype=%s): %s",
+                        log_type,
+                        subtype,
+                        e,
+                    )
+                    stats["errors"] += 1
+
+                if stats["routed"] % 1000 == 0 and stats["routed"]:
+                    logger.info(
+                        "Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
+                        stats,
+                    )
+        finally:
+            logger.info("Flushing producer...")
+            remaining = producer.flush(30)
+            if remaining:
                 logger.warning(
-                    "No route for type=%s subtype=%s — skipping", log_type, subtype
+                    "%d message(s) still in queue after flush timeout",
+                    remaining,
                 )
-                stats["skipped"] += 1
-                continue
-
-            record = build_record(route["layout"], fields)
-            key = record.get(KEY_FIELD) or "unknown"
-            try:
-                value = route["serializer"](
-                    record,
-                    SerializationContext(
-                        route["topic"],
-                        MessageField.VALUE,
-                    ),
-                )
-                producer.produce(
-                    topic=route["topic"],
-                    key=key_serializer(key),
-                    value=value,
-                )
-                producer.poll(0)
-                stats["routed"] += 1
-            except BufferError:
-                producer.flush(5)
-                stats["errors"] += 1
-            except Exception as e:  # noqa: BLE001
-                logger.error(
-                    "Failed to route event (type=%s subtype=%s): %s",
-                    log_type,
-                    subtype,
-                    e,
-                )
-                stats["errors"] += 1
-
-            if stats["routed"] % 1000 == 0 and stats["routed"]:
-                logger.info(
-                    "Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
-                    stats,
-                )
-    finally:
-        logger.info("Flushing producer...")
-        remaining = producer.flush(30)
-        if remaining:
-            logger.warning(
-                "%d message(s) still in queue after flush timeout",
-                remaining,
+            consumer.close()
+            logger.info(
+                "Done. Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
+                stats,
             )
-        consumer.close()
-        logger.info(
-            "Done. Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
-            stats,
-        )
 
 
 if __name__ == "__main__":

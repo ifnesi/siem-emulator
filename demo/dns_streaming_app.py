@@ -59,6 +59,8 @@ from utils import (
     ensure_topics,
     load_properties,
     setup_logging,
+    graceful_shutdown,
+    string_serializer,
 )
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
@@ -270,7 +272,7 @@ def main():
     # No reader schema passed: the deserializer reads the writer schema from the
     # Schema Registry using the schema id embedded in each Avro message.
     deserializer = AvroDeserializer(sr_client)
-    key_serializer = StringSerializer("utf_8")
+    key_serializer = string_serializer()
 
     admin = AdminClient(kafka_conf)
     ensure_topics(admin, [args.source_topic, SINK_TOPIC], args.retention_ms)
@@ -288,15 +290,6 @@ def main():
     )
     consumer = Consumer(consumer_conf)
     consumer.subscribe([args.source_topic])
-
-    running = {"flag": True}
-
-    def _stop(signum, frame):  # noqa: ARG001
-        logger.info("Shutdown signal received, stopping after current window...")
-        running["flag"] = False
-
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
 
     window_ms = window_seconds * 1000
     grace_ms = args.allowed_lateness * 1000
@@ -404,62 +397,63 @@ def main():
         closed_through = cutoff  # windows below this are now closed → late = drop
         current_window_start = cutoff
 
-    try:
-        while running["flag"]:
-            maybe_close_boundary()
+    with graceful_shutdown("Shutdown signal received, stopping after current window") as running:
+        try:
+            while running["flag"]:
+                maybe_close_boundary()
 
-            msg = consumer.poll(POLL_TIMEOUT)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+                msg = consumer.poll(POLL_TIMEOUT)
+                if msg is None:
                     continue
-                logger.error("Consumer error: %s", msg.error())
-                continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    logger.error("Consumer error: %s", msg.error())
+                    continue
 
-            partition, offset = msg.partition(), msg.offset()
-            last_offset[partition] = max(last_offset.get(partition, -1), offset)
+                partition, offset = msg.partition(), msg.offset()
+                last_offset[partition] = max(last_offset.get(partition, -1), offset)
 
-            try:
-                # Pass the message headers: the producer stores the Avro schema
-                # id in the Kafka headers (schema-id-location=headers), so the
-                # deserializer must read it from there (it falls back to the
-                # magic-byte payload prefix when no header is present).
-                event = deserializer(
-                    msg.value(),
-                    SerializationContext(
-                        args.source_topic,
-                        MessageField.VALUE,
-                        msg.headers(),
-                    ),
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Skipping undeserializable message: %s", e)
-                continue
-            if event is None:  # tombstone / null value
-                continue
+                try:
+                    # Pass the message headers: the producer stores the Avro schema
+                    # id in the Kafka headers (schema-id-location=headers), so the
+                    # deserializer must read it from there (it falls back to the
+                    # magic-byte payload prefix when no header is present).
+                    event = deserializer(
+                        msg.value(),
+                        SerializationContext(
+                            args.source_topic,
+                            MessageField.VALUE,
+                            msg.headers(),
+                        ),
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Skipping undeserializable message: %s", e)
+                    continue
+                if event is None:  # tombstone / null value
+                    continue
 
-            window_start = window_floor(_ts_millis(event.get("ts")), window_ms)
-            # Late event for an already-emitted window -> discard (offset already
-            # tracked above so it won't block commits).
-            if closed_through is not None and window_start < closed_through:
-                stats["discarded"] += 1
-                continue
+                window_start = window_floor(_ts_millis(event.get("ts")), window_ms)
+                # Late event for an already-emitted window -> discard (offset already
+                # tracked above so it won't block commits).
+                if closed_through is not None and window_start < closed_through:
+                    stats["discarded"] += 1
+                    continue
 
-            update_state(windows, event, window_ms)
-            buffered.setdefault(partition, {})[offset] = window_start
-            window_offsets.setdefault(window_start, {}).setdefault(
-                partition, []
-            ).append(offset)
-    finally:
-        logger.info("Final flush of all open windows...")
-        emit_windows(list(windows.keys()))
-        consumer.close()
-        logger.info(
-            "Done. windows=%(windows)d aggregates=%(aggregates)d events=%(events)d "
-            "discarded=%(discarded)d",
-            stats,
-        )
+                update_state(windows, event, window_ms)
+                buffered.setdefault(partition, {})[offset] = window_start
+                window_offsets.setdefault(window_start, {}).setdefault(
+                    partition, []
+                ).append(offset)
+        finally:
+            logger.info("Final flush of all open windows...")
+            emit_windows(list(windows.keys()))
+            consumer.close()
+            logger.info(
+                "Done. windows=%(windows)d aggregates=%(aggregates)d events=%(events)d "
+                "discarded=%(discarded)d",
+                stats,
+            )
 
 
 if __name__ == "__main__":

@@ -47,6 +47,9 @@ from utils import (
     ensure_topics,
     load_properties,
     setup_logging,
+    graceful_shutdown,
+    string_serializer,
+    build_avro_record,
 )
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
@@ -100,69 +103,6 @@ def route_from_filename(path):
     return slug, eventid
 
 
-def iso_to_millis(value):
-    """Convert a Windows ISO-8601 '@timestamp' to Unix epoch millis (UTC)."""
-    try:
-        dt = datetime.strptime(value, ISO_TS_FMT).replace(tzinfo=timezone.utc)
-        return int(dt.timestamp() * 1000)
-    except (ValueError, TypeError):
-        return None
-
-
-def resolve_type(ftype):
-    """Resolve an Avro field type to ('record', subfields) | (kind, None).
-
-    kind ∈ {'ts', 'long', 'int', 'string', ...}. Handles unions and logical
-    types (timestamp-millis) and nested records.
-    """
-    if isinstance(ftype, list):  # union, e.g. ["null", {...}]
-        ftype = next((x for x in ftype if x != "null"), "string")
-    if isinstance(ftype, dict):
-        if ftype.get("logicalType") == "timestamp-millis":
-            return "ts", None
-        if ftype.get("type") == "record":
-            return "record", ftype["fields"]
-        return ftype.get("type", "string"), None
-    return ftype, None
-
-
-def coerce_scalar(
-    value,
-    kind,
-):
-    """Coerce a JSON value to the Avro type implied by `kind`."""
-    if value is None or value == "":
-        return None
-    if kind == "ts":
-        return iso_to_millis(value)
-    if kind in ("long", "int"):
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return None
-    if kind in ("double", "float"):
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return None
-    return value if isinstance(value, str) else str(value)
-
-
-def build_record(
-    schema_fields,
-    source,
-):
-    """Build an Avro-ready dict from a parsed JSON object, driven by the schema."""
-    record = {}
-    src = source or {}
-    for field in schema_fields:
-        name = field["name"]
-        kind, subfields = resolve_type(field["type"])
-        if kind == "record":
-            record[name] = build_record(subfields, src.get(name))
-        else:
-            record[name] = coerce_scalar(src.get(name), kind)
-    return record
 
 
 def main():
@@ -230,7 +170,7 @@ def main():
     admin = AdminClient(kafka_conf)
     ensure_topics(admin, [args.source_topic] + dest_topics, args.retention_ms)
 
-    key_serializer = StringSerializer("utf_8")
+    key_serializer = string_serializer()
     producer = Producer(kafka_conf)
 
     consumer_conf = dict(kafka_conf)
@@ -245,98 +185,91 @@ def main():
     consumer = Consumer(consumer_conf)
     consumer.subscribe([args.source_topic])
 
-    running = {"flag": True}
-
-    def _stop(signum, frame):  # noqa: ARG001
-        logger.info("Shutdown signal received, stopping...")
-        running["flag"] = False
-
-    signal.signal(signal.SIGINT, _stop)
-    signal.signal(signal.SIGTERM, _stop)
-
     stats = {"routed": 0, "skipped": 0, "errors": 0}
     logger.info(
         "Routing from '%s' -> '%s-<channel>-<eventid>' (Ctrl+C to stop)",
         args.source_topic,
         TOPIC_PREFIX,
     )
-    try:
-        while running["flag"]:
-            msg = consumer.poll(POLL_TIMEOUT)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+
+    with graceful_shutdown("Shutdown signal received, stopping") as running:
+        try:
+            while running["flag"]:
+                msg = consumer.poll(POLL_TIMEOUT)
+                if msg is None:
                     continue
-                logger.error("Consumer error: %s", msg.error())
-                continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    logger.error("Consumer error: %s", msg.error())
+                    continue
 
-            raw = msg.value().decode("utf-8", errors="replace")
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError as e:
-                logger.warning("Skipping non-JSON message: %s", e)
-                stats["skipped"] += 1
-                continue
+                raw = msg.value().decode("utf-8", errors="replace")
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    logger.warning("Skipping non-JSON message: %s", e)
+                    stats["skipped"] += 1
+                    continue
 
-            # @timestamp is not a legal Avro field name -> mirror to 'timestamp'.
-            event["timestamp"] = event.get("@timestamp")
-            slug = channel_slug(event.get("Channel"))
-            eventid = str(event.get("EventID"))
-            route = routes.get((slug, eventid))
-            if route is None:
+                # @timestamp is not a legal Avro field name -> mirror to 'timestamp'.
+                event["timestamp"] = event.get("@timestamp")
+                slug = channel_slug(event.get("Channel"))
+                eventid = str(event.get("EventID"))
+                route = routes.get((slug, eventid))
+                if route is None:
+                    logger.warning(
+                        "No route for Channel=%s EventID=%s — skipping",
+                        event.get("Channel"),
+                        eventid,
+                    )
+                    stats["skipped"] += 1
+                    continue
+
+                record = build_avro_record(route["fields"], event)
+                key = record.get(KEY_FIELD) or "unknown"
+                try:
+                    value = route["serializer"](
+                        record,
+                        SerializationContext(route["topic"], MessageField.VALUE),
+                    )
+                    producer.produce(
+                        topic=route["topic"],
+                        key=key_serializer(key),
+                        value=value,
+                    )
+                    producer.poll(0)
+                    stats["routed"] += 1
+                except BufferError:
+                    producer.flush(5)
+                    stats["errors"] += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.error(
+                        "Failed to route event (Channel=%s EventID=%s): %s",
+                        event.get("Channel"),
+                        eventid,
+                        e,
+                    )
+                    stats["errors"] += 1
+
+                if stats["routed"] % 1000 == 0 and stats["routed"]:
+                    logger.info(
+                        "Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
+                        stats,
+                    )
+        finally:
+            logger.info("Flushing producer...")
+            remaining = producer.flush(30)
+            if remaining:
                 logger.warning(
-                    "No route for Channel=%s EventID=%s — skipping",
-                    event.get("Channel"),
-                    eventid,
+                    "%d message(s) still in queue after flush timeout",
+                    remaining,
                 )
-                stats["skipped"] += 1
-                continue
-
-            record = build_record(route["fields"], event)
-            key = record.get(KEY_FIELD) or "unknown"
-            try:
-                value = route["serializer"](
-                    record,
-                    SerializationContext(route["topic"], MessageField.VALUE),
-                )
-                producer.produce(
-                    topic=route["topic"],
-                    key=key_serializer(key),
-                    value=value,
-                )
-                producer.poll(0)
-                stats["routed"] += 1
-            except BufferError:
-                producer.flush(5)
-                stats["errors"] += 1
-            except Exception as e:  # noqa: BLE001
-                logger.error(
-                    "Failed to route event (Channel=%s EventID=%s): %s",
-                    event.get("Channel"),
-                    eventid,
-                    e,
-                )
-                stats["errors"] += 1
-
-            if stats["routed"] % 1000 == 0 and stats["routed"]:
-                logger.info(
-                    "Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
-                    stats,
-                )
-    finally:
-        logger.info("Flushing producer...")
-        remaining = producer.flush(30)
-        if remaining:
-            logger.warning(
-                "%d message(s) still in queue after flush timeout",
-                remaining,
+            consumer.close()
+            logger.info(
+                "Done. Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
+                stats,
             )
-        consumer.close()
-        logger.info(
-            "Done. Routed=%(routed)d skipped=%(skipped)d errors=%(errors)d",
-            stats,
-        )
 
 
 if __name__ == "__main__":
