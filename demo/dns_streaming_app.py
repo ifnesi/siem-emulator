@@ -222,7 +222,9 @@ def to_record(group, agg, window_start, window_ms):
     record.update(
         {
             "window_start": window_start,
-            "window_end": window_start + window_ms - 1,  # inclusive end, e.g. 10:04:59.999
+            "window_end": window_start
+            + window_ms
+            - 1,  # inclusive end, e.g. 10:04:59.999
             "ts_first": agg["ts_first"],
             "ts_last": agg["ts_last"],
             "event_type": EVENT_TYPE,
@@ -360,11 +362,16 @@ def main():
     grace_ms = args.allowed_lateness * 1000
 
     # Open windows and the source offsets they hold (for conservative commits).
-    windows = {}  # window_start_ms -> {group_tuple: agg}
-    window_offsets = {}  # window_start_ms -> {partition: [offset, ...]}
-    buffered = {}  # partition -> {offset: window_start_ms} (still-open offsets)
-    last_offset = {}  # partition -> highest consumed offset
-    stats = {"windows": 0, "aggregates": 0, "events": 0, "discarded": 0}
+    windows = dict()  # window_start_ms -> {group_tuple: agg}
+    window_offsets = dict()  # window_start_ms -> {partition: [offset, ...]}
+    buffered = dict()  # partition -> {offset: window_start_ms} (still-open offsets)
+    last_offset = dict()  # partition -> highest consumed offset
+    stats = {
+        "windows": 0,
+        "aggregates": 0,
+        "events": 0,
+        "discarded": 0,
+    }
 
     # Emission is gated on wall-clock window boundaries (not per-window-age):
     #  * `current_window_start` is the window we are currently inside.
@@ -383,13 +390,14 @@ def main():
         window_seconds,
         args.allowed_lateness,
         datetime.fromtimestamp(
-            (current_window_start + window_ms + grace_ms) / 1000, timezone.utc
+            (current_window_start + window_ms + grace_ms) / 1000,
+            timezone.utc,
         ).isoformat(),
     )
 
     def commit_offsets():
         """Commit up to the earliest offset still held by an open window."""
-        tps = []
+        tps = list()
         for partition, last in last_offset.items():
             pending = buffered.get(partition)
             commit_off = min(pending) if pending else last + 1
@@ -411,14 +419,21 @@ def main():
         for window_start in sorted(due):
             groups = windows[window_start]
             produced = flush_window(
-                window_start, window_ms, groups, producer, serializer, key_serializer
+                window_start,
+                window_ms,
+                groups,
+                producer,
+                serializer,
+                key_serializer,
             )
             remaining = producer.flush(30)
             if remaining:
                 logger.error(
                     "Window %s: %d record(s) undelivered after flush — NOT committing "
                     "(window stays open, will retry)",
-                    datetime.fromtimestamp(window_start / 1000, timezone.utc).isoformat(),
+                    datetime.fromtimestamp(
+                        window_start / 1000, timezone.utc
+                    ).isoformat(),
                     remaining,
                 )
                 continue  # keep window + its offsets open; retry next tick
@@ -493,7 +508,9 @@ def main():
 
             update_state(windows, event, window_ms)
             buffered.setdefault(partition, {})[offset] = window_start
-            window_offsets.setdefault(window_start, {}).setdefault(partition, []).append(offset)
+            window_offsets.setdefault(window_start, {}).setdefault(
+                partition, []
+            ).append(offset)
     finally:
         logger.info("Final flush of all open windows...")
         emit_windows(list(windows.keys()))
