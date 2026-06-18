@@ -22,13 +22,11 @@ the Kafka config's `ssl.ca.location`.
 import os
 import sys
 import signal
-import logging
 import argparse
 from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, Producer, KafkaError
-from confluent_kafka.admin import AdminClient, NewTopic
-from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.admin import AdminClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 from confluent_kafka.serialization import (
     MessageField,
@@ -36,17 +34,22 @@ from confluent_kafka.serialization import (
     StringSerializer,
 )
 
+from utils import (
+    AUTO_OFFSET_RESET,
+    DEFAULT_RETENTION_MS,
+    DEFAULT_SCHEMA_DIR,
+    POLL_TIMEOUT,
+    build_sr_client,
+    ensure_topics,
+    load_properties,
+    setup_logging,
+)
+
 # ── Tunables ─────────────────────────────────────────────────────────────────
 SOURCE_TOPIC = "siem_poc_paloalto_logs"
 TOPIC_PREFIX = "siem_poc_paloalto_logs"  # dest = PREFIX-<type>-<subtype>
-NUM_PARTITIONS = 1
-REPLICATION_FACTOR = 1
 CONSUMER_GROUP = "paloalto-streaming-app"
-AUTO_OFFSET_RESET = "earliest"
-DEFAULT_SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schemas")
 KEY_FIELD = "devname"  # message key, the PAN device hostname
-POLL_TIMEOUT = 1.0
-ADMIN_OP_TIMEOUT = 30.0
 PAN_TS_FMT = "%Y/%m/%d %H:%M:%S"  # PAN-OS datetime string format
 
 # ── Positional field layouts ─────────────────────────────────────────────────
@@ -188,12 +191,7 @@ REQUIRED = {
     "generated_time",
 }
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("paloalto-streaming-app")
+logger = setup_logging("paloalto-streaming-app")
 
 
 def schema_filename(
@@ -210,37 +208,6 @@ def topic_name(
 ):
     """siem_poc_paloalto_logs-<type>-<subtype> (type lower-cased)."""
     return f"{TOPIC_PREFIX}-{log_type.lower()}-{subtype}"
-
-
-def load_properties(path):
-    """Read a simple java-style key=value properties file into a dict."""
-    conf = {}
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            conf[key.strip()] = val.strip()
-    return conf
-
-
-def build_sr_client(
-    sr_conf,
-    kafka_conf,
-):
-    """Build a SchemaRegistryClient from registry properties.
-
-    Maps `schemaRegistryURL` → `url`, carries `basic.auth.user.info` when set,
-    and falls back to the Kafka CA bundle for self-signed Schema Registry TLS.
-    """
-    client_conf = {"url": sr_conf["schemaRegistryURL"]}
-    if sr_conf.get("basic.auth.user.info"):
-        client_conf["basic.auth.user.info"] = sr_conf["basic.auth.user.info"]
-    ca = sr_conf.get("ssl.ca.location") or kafka_conf.get("ssl.ca.location")
-    if ca:
-        client_conf["ssl.ca.location"] = ca
-    return SchemaRegistryClient(client_conf)
 
 
 def to_epoch_millis(value):
@@ -281,39 +248,6 @@ def build_record(
     return record
 
 
-def ensure_topics(
-    admin,
-    topics,
-):
-    """Create any missing topics with NUM_PARTITIONS partitions."""
-    existing = set(admin.list_topics(timeout=ADMIN_OP_TIMEOUT).topics.keys())
-    to_create = [
-        NewTopic(
-            t,
-            num_partitions=NUM_PARTITIONS,
-            replication_factor=REPLICATION_FACTOR,
-        )
-        for t in topics
-        if t not in existing
-    ]
-    if not to_create:
-        logger.info("All %d topic(s) already exist", len(topics))
-        return
-    for topic, fut in admin.create_topics(to_create).items():
-        try:
-            fut.result()
-            logger.info(
-                "Created topic '%s' (%d partitions)",
-                topic,
-                NUM_PARTITIONS,
-            )
-        except Exception as e:  # noqa: BLE001 - already-exists races are fine
-            if "already exists" in str(e).lower():
-                logger.info("Topic '%s' already exists", topic)
-            else:
-                logger.error("Failed to create topic '%s': %s", topic, e)
-
-
 def main():
     ap = argparse.ArgumentParser(
         description="Palo Alto (PAN-OS) Kafka streaming router"
@@ -337,6 +271,12 @@ def main():
         "--source-topic",
         default=SOURCE_TOPIC,
         help="Source topic to consume raw PAN-OS logs from",
+    )
+    ap.add_argument(
+        "--retention-ms",
+        type=int,
+        default=DEFAULT_RETENTION_MS,
+        help="retention.ms for topics created by this app (default: 1 day)",
     )
     args = ap.parse_args()
 
@@ -369,7 +309,7 @@ def main():
 
     # Ensure source + all destination topics exist with the right partition count.
     admin = AdminClient(kafka_conf)
-    ensure_topics(admin, [args.source_topic] + dest_topics)
+    ensure_topics(admin, [args.source_topic] + dest_topics, args.retention_ms)
 
     key_serializer = StringSerializer("utf_8")
     producer = Producer(kafka_conf)

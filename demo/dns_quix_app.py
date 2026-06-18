@@ -40,7 +40,6 @@ the wire format is the standard Confluent magic-byte + schema-id-in-payload.
 import os
 import sys
 import json
-import logging
 import argparse
 from datetime import datetime, timezone
 
@@ -53,6 +52,16 @@ from quixstreams.models.serializers.schema_registry import (
     SchemaRegistrySerializationConfig,
 )
 
+from utils import (
+    AUTO_OFFSET_RESET,
+    DEFAULT_RETENTION_MS,
+    DEFAULT_SCHEMA_DIR,
+    NUM_PARTITIONS,
+    REPLICATION_FACTOR,
+    load_properties,
+    setup_logging,
+)
+
 # ── Tunables ─────────────────────────────────────────────────────────────────
 SOURCE_TOPIC = "siem_poc_dns_logs"
 SINK_TOPIC = "siem_poc_dns_logs-aggregate"
@@ -60,11 +69,7 @@ WINDOW_SECONDS = 300  # tumbling window size (5 minutes)
 # Grace period: extra seconds past a window's end before it is emitted, giving
 # slightly-late events a chance to land. Events later than this are ignored.
 ALLOWED_LATENESS_SECONDS = 10
-NUM_PARTITIONS = 1
-REPLICATION_FACTOR = 1
 CONSUMER_GROUP = "dns-quix-app"
-AUTO_OFFSET_RESET = "earliest"
-DEFAULT_SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schemas")
 SCHEMA_FILE = "dns_aggregate.avsc"
 
 # Fields the aggregation groups by (composite key). Order defines the message key.
@@ -87,28 +92,13 @@ SUM_FIELDS = [
 AVG_FIELD = "latency_ms"
 EVENT_TYPE = "dns"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("dns-quix-app")
+logger = setup_logging("dns-quix-app")
 
 
-def load_properties(path):
-    """Read a simple java-style key=value properties file into a dict."""
-    conf = {}
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            conf[key.strip()] = val.strip()
-    return conf
-
-
-def build_sr_config(sr_conf, kafka_conf):
+def build_sr_config(
+    sr_conf,
+    kafka_conf,
+):
     """Build a SchemaRegistryClientConfig from registry properties.
 
     Maps `schemaRegistryURL` → `url`, carries `basic.auth.user.info` when set,
@@ -122,7 +112,10 @@ def build_sr_config(sr_conf, kafka_conf):
     )
 
 
-def _to_int(value, default=0):
+def _to_int(
+    value,
+    default=0,
+):
     try:
         return int(value)
     except (ValueError, TypeError):
@@ -253,6 +246,12 @@ def main():
         default=ALLOWED_LATENESS_SECONDS,
         help="Grace seconds past window end before the window is emitted",
     )
+    ap.add_argument(
+        "--retention-ms",
+        type=int,
+        default=DEFAULT_RETENTION_MS,
+        help="retention.ms for the source/sink topics (default: 1 day)",
+    )
     args = ap.parse_args()
 
     kafka_conf = load_properties(args.kafka_config)
@@ -279,7 +278,10 @@ def main():
 
     # Carry all librdkafka settings (bootstrap.servers, SASL/SSL, self-signed CA)
     # into the Quix connection config.
-    connection = ConnectionConfig.from_librdkafka_dict(kafka_conf, ignore_extras=True)
+    connection = ConnectionConfig.from_librdkafka_dict(
+        kafka_conf,
+        ignore_extras=True,
+    )
 
     app = Application(
         broker_address=connection,
@@ -287,9 +289,12 @@ def main():
         auto_offset_reset=AUTO_OFFSET_RESET,
     )
 
+    # retention.ms applies to the source/sink topics we declare here; Quix's
+    # internal changelog/repartition topics keep their own (compacted) config.
     topic_config = TopicConfig(
         num_partitions=NUM_PARTITIONS,
         replication_factor=REPLICATION_FACTOR,
+        extra_config={"retention.ms": str(args.retention_ms)},
     )
     input_topic = app.topic(
         args.source_topic,
@@ -321,8 +326,13 @@ def main():
     # group (Quix windows are keyed by the Kafka message key).
     sdf = sdf.group_by(group_key, name="dns-group")
     sdf = (
-        sdf.tumbling_window(duration_ms=window_ms, grace_ms=grace_ms)
-        .reduce(reducer=reducer, initializer=initializer)
+        sdf.tumbling_window(
+            duration_ms=window_ms,
+            grace_ms=grace_ms,
+        ).reduce(
+            reducer=reducer,
+            initializer=initializer,
+        )
         # Emit each window once, after it closes (event-time end + grace).
         # "partition": any event advances time and closes every ended window in
         # the partition together, mirroring the original's boundary release
@@ -346,7 +356,10 @@ def main():
         )
 
     sdf = sdf.update(_log)
-    sdf.to_topic(output_topic, key=output_key)
+    sdf.to_topic(
+        output_topic,
+        key=output_key,
+    )
 
     app.run()
 

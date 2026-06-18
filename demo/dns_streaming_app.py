@@ -38,18 +38,27 @@ import os
 import sys
 import time
 import signal
-import logging
 import argparse
 from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, Producer, KafkaError, TopicPartition
-from confluent_kafka.admin import AdminClient, NewTopic
-from confluent_kafka.schema_registry import SchemaRegistryClient
+from confluent_kafka.admin import AdminClient
 from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserializer
 from confluent_kafka.serialization import (
     MessageField,
     SerializationContext,
     StringSerializer,
+)
+
+from utils import (
+    AUTO_OFFSET_RESET,
+    DEFAULT_RETENTION_MS,
+    DEFAULT_SCHEMA_DIR,
+    POLL_TIMEOUT,
+    build_sr_client,
+    ensure_topics,
+    load_properties,
+    setup_logging,
 )
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
@@ -60,14 +69,8 @@ WINDOW_SECONDS = 300  # tumbling window size (5 minutes)
 # older buffered windows) are released, giving slightly-late events a chance to
 # land before the boundary closes. After release, late events are discarded.
 ALLOWED_LATENESS_SECONDS = 10
-NUM_PARTITIONS = 1
-REPLICATION_FACTOR = 1
 CONSUMER_GROUP = "dns-streaming-app"
-AUTO_OFFSET_RESET = "earliest"
-DEFAULT_SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schemas")
 SCHEMA_FILE = "dns_aggregate.avsc"
-POLL_TIMEOUT = 1.0
-ADMIN_OP_TIMEOUT = 30.0
 
 # Fields the aggregation groups by (composite key). Order defines the message key.
 # `query`/`query_class` are intentionally excluded: they are high-cardinality and
@@ -89,76 +92,7 @@ SUM_FIELDS = [
 AVG_FIELD = "latency_ms"
 EVENT_TYPE = "dns"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("dns-streaming-app")
-
-
-def load_properties(path):
-    """Read a simple java-style key=value properties file into a dict."""
-    conf = {}
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            conf[key.strip()] = val.strip()
-    return conf
-
-
-def build_sr_client(
-    sr_conf,
-    kafka_conf,
-):
-    """Build a SchemaRegistryClient from registry properties.
-
-    Maps `schemaRegistryURL` → `url`, carries `basic.auth.user.info` when set,
-    and falls back to the Kafka CA bundle for self-signed Schema Registry TLS.
-    """
-    client_conf = {"url": sr_conf["schemaRegistryURL"]}
-    if sr_conf.get("basic.auth.user.info"):
-        client_conf["basic.auth.user.info"] = sr_conf["basic.auth.user.info"]
-    ca = sr_conf.get("ssl.ca.location") or kafka_conf.get("ssl.ca.location")
-    if ca:
-        client_conf["ssl.ca.location"] = ca
-    return SchemaRegistryClient(client_conf)
-
-
-def ensure_topics(
-    admin,
-    topics,
-):
-    """Create any missing topics with NUM_PARTITIONS partitions."""
-    existing = set(admin.list_topics(timeout=ADMIN_OP_TIMEOUT).topics.keys())
-    to_create = [
-        NewTopic(
-            t,
-            num_partitions=NUM_PARTITIONS,
-            replication_factor=REPLICATION_FACTOR,
-        )
-        for t in topics
-        if t not in existing
-    ]
-    if not to_create:
-        logger.info("All %d topic(s) already exist", len(topics))
-        return
-    for topic, fut in admin.create_topics(to_create).items():
-        try:
-            fut.result()
-            logger.info(
-                "Created topic '%s' (%d partitions)",
-                topic,
-                NUM_PARTITIONS,
-            )
-        except Exception as e:  # noqa: BLE001 - already-exists races are fine
-            if "already exists" in str(e).lower():
-                logger.info("Topic '%s' already exists", topic)
-            else:
-                logger.error("Failed to create topic '%s': %s", topic, e)
+logger = setup_logging("dns-streaming-app")
 
 
 def _to_int(
@@ -310,6 +244,12 @@ def main():
         default=ALLOWED_LATENESS_SECONDS,
         help="Grace seconds past window end before the window is emitted",
     )
+    ap.add_argument(
+        "--retention-ms",
+        type=int,
+        default=DEFAULT_RETENTION_MS,
+        help="retention.ms for topics created by this app (default: 1 day)",
+    )
     args = ap.parse_args()
 
     window_seconds = args.window_seconds
@@ -333,7 +273,7 @@ def main():
     key_serializer = StringSerializer("utf_8")
 
     admin = AdminClient(kafka_conf)
-    ensure_topics(admin, [args.source_topic, SINK_TOPIC])
+    ensure_topics(admin, [args.source_topic, SINK_TOPIC], args.retention_ms)
 
     producer = Producer(kafka_conf)
 
