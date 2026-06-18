@@ -32,6 +32,8 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RETENTION_MS = 86400000  # retention.ms when creating a topic (1 day)
+
 
 class TemplateRenderer:
     """Renders Jinja2 templates with random-data helpers registered as globals."""
@@ -529,6 +531,7 @@ def create_topic_if_not_exists(
     topic: str,
     partitions: int = 6,
     replication: int = 1,
+    retention_ms: int = DEFAULT_RETENTION_MS,
 ) -> None:
     """Create the topic if it doesn't already exist."""
     admin_config = dict(kafka_config)
@@ -554,7 +557,10 @@ def create_topic_if_not_exists(
         return
 
     new_topic = NewTopic(
-        topic, num_partitions=partitions, replication_factor=replication
+        topic,
+        num_partitions=partitions,
+        replication_factor=replication,
+        config={"retention.ms": str(retention_ms)},
     )
     futures: Dict[str, Future] = admin_client.create_topics([new_topic])
 
@@ -659,6 +665,13 @@ def main() -> None:
         default=6,
         help="Number of partitions when creating the topic (default: 6). "
         "Ignored if the topic already exists.",
+    )
+    parser.add_argument(
+        "--retention-ms",
+        type=int,
+        default=DEFAULT_RETENTION_MS,
+        help="retention.ms set when creating the topic (default: 1 day = "
+        "86400000). Ignored if the topic already exists.",
     )
     parser.add_argument(
         "-s",
@@ -858,6 +871,7 @@ def main() -> None:
         kafka_config,
         topic=args.topic,
         partitions=args.partitions,
+        retention_ms=args.retention_ms,
     )
 
     producer = create_producer(kafka_config)
