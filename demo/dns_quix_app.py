@@ -255,13 +255,13 @@ def main():
     ap.add_argument(
         "--session-timeout-ms",
         type=int,
-        default=30000,
+        default=60000,
         help="Kafka session.timeout.ms (consumer kicked out after this ms without heartbeat)",
     )
     ap.add_argument(
         "--heartbeat-interval-ms",
         type=int,
-        default=3000,
+        default=5000,
         help="Kafka heartbeat.interval.ms (how often to send heartbeats)",
     )
     args = ap.parse_args()
