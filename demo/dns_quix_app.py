@@ -252,9 +252,24 @@ def main():
         default=DEFAULT_RETENTION_MS,
         help="retention.ms for the source/sink topics (default: 1 day)",
     )
+    ap.add_argument(
+        "--session-timeout-ms",
+        type=int,
+        default=30000,
+        help="Kafka session.timeout.ms (consumer kicked out after this ms without heartbeat)",
+    )
+    ap.add_argument(
+        "--heartbeat-interval-ms",
+        type=int,
+        default=3000,
+        help="Kafka heartbeat.interval.ms (how often to send heartbeats)",
+    )
     args = ap.parse_args()
 
     kafka_conf = load_properties(args.kafka_config)
+    kafka_conf["session.timeout.ms"] = str(args.session_timeout_ms)
+    kafka_conf["heartbeat.interval.ms"] = str(args.heartbeat_interval_ms)
+
     sr_conf = load_properties(args.registry_config)
     auto_register = sr_conf.get("auto.register.schemas", "true").lower() == "true"
 
