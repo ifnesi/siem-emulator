@@ -37,7 +37,6 @@ the Kafka config's `ssl.ca.location`.
 import os
 import sys
 import time
-import signal
 import argparse
 from datetime import datetime, timezone
 
@@ -47,7 +46,6 @@ from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserialize
 from confluent_kafka.serialization import (
     MessageField,
     SerializationContext,
-    StringSerializer,
 )
 
 from utils import (
@@ -166,7 +164,7 @@ def to_record(group, agg, window_start, window_ms):
             "event_type": EVENT_TYPE,
             "event_count": agg["event_count"],
             "latency_ms_avg": (
-                agg["latency_sum"] / agg["event_count"] if agg["event_count"] else 0.0
+                round(agg["latency_sum"] / agg["event_count"], 4) if agg["event_count"] else 0.0
             ),
         }
     )

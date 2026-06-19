@@ -21,7 +21,6 @@ the Kafka config's `ssl.ca.location`.
 """
 import os
 import sys
-import signal
 import argparse
 from datetime import datetime, timezone
 
@@ -31,7 +30,6 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 from confluent_kafka.serialization import (
     MessageField,
     SerializationContext,
-    StringSerializer,
 )
 
 from utils import (

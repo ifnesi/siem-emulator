@@ -18,7 +18,6 @@ import os
 import re
 import sys
 import json
-import signal
 import argparse
 
 from confluent_kafka import Consumer, Producer, KafkaError
@@ -27,7 +26,6 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 from confluent_kafka.serialization import (
     MessageField,
     SerializationContext,
-    StringSerializer,
 )
 
 from utils import (
