@@ -575,11 +575,19 @@ def create_topic_if_not_exists(
             sys.exit(1)
 
 
-def create_producer(kafka_config: Dict[str, str]) -> Producer:
+def create_producer(
+    kafka_config: Dict[str, str],
+    acks: str = "all",
+    message_timeout_ms: int = 60000,
+    linger_ms: int = 5,
+) -> Producer:
     """Create a Kafka producer with defaults and an error callback for visibility."""
     producer_config: dict[str, Any] = dict(kafka_config)
     producer_config.setdefault("bootstrap.servers", "localhost:9092")
     producer_config.setdefault("security.protocol", "PLAINTEXT")
+    producer_config.setdefault("acks", acks)
+    producer_config.setdefault("message.timeout.ms", message_timeout_ms)
+    producer_config.setdefault("linger.ms", linger_ms)
     # Surface broker-side issues (DNS failure, auth, broker down).
     producer_config["error_cb"] = lambda err: logger.error(
         "Kafka producer error: %s", err
@@ -703,6 +711,23 @@ def main() -> None:
         "--inferred-schema",
         action="store_true",
         help="Display the inferred AVRO Schema",
+    )
+    parser.add_argument(
+        "--acks",
+        default="all",
+        help="Producer acks setting (default: all)",
+    )
+    parser.add_argument(
+        "--message-timeout-ms",
+        type=int,
+        default=60000,
+        help="Message delivery timeout in ms (default: 60000)",
+    )
+    parser.add_argument(
+        "--linger-ms",
+        type=int,
+        default=5,
+        help="Linger time in ms before sending a batch (default: 5)",
     )
     parser.add_argument(
         "--no-schema",
@@ -874,7 +899,12 @@ def main() -> None:
         retention_ms=args.retention_ms,
     )
 
-    producer = create_producer(kafka_config)
+    producer = create_producer(
+        kafka_config,
+        acks=args.acks,
+        message_timeout_ms=args.message_timeout_ms,
+        linger_ms=args.linger_ms,
+    )
 
     logger.info(
         "Producing to topic '%s' with frequency %ss", args.topic, args.frequency
