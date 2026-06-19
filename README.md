@@ -240,8 +240,8 @@ Optional Arguments:
                                message key (must be a scalar). Default: no key (null).
   -p, --partitions N           Partitions when creating the topic (default: 6).
                                Ignored if the topic already exists.
-  -s, --schema-id-location LOC Where to put the Avro schema ID — `headers` (default,
-                               modern) or `body` (legacy 5-byte magic-byte framing).
+  -s, --schema-id-location LOC Where to put the Avro schema ID - `headers` (modern)
+                               or `body` (default, legacy 5-byte magic-byte framing).
   -ns, --namespace NS          Avro schema namespace (default: io.confluent.siem).
                                Ignored when --schema is set.
   --schema FILE                Use an existing Avro schema (JSON file) instead of
@@ -286,7 +286,7 @@ Examples:
   # Register and produce against a hand-written / pre-existing schema file
   python siem_producer.py dns_log -t dns_log --schema schemas/dns_log.avsc
 
-  # Raw text payload (no Avro, no Schema Registry) — e.g. NGINX access logs
+  # Raw text payload (no Avro, no Schema Registry) - e.g. NGINX access logs
   python siem_producer.py nginx_access_log -t nginx_access_log --no-schema
 ```
 
@@ -301,12 +301,12 @@ python siem_producer.py dns_log    -t dns_log     -k src_ip
 
 - The field must exist in the rendered record and be a **scalar** (string, int, float, or bool). Nested objects and arrays are rejected at startup.
 - The key value is serialized as a UTF-8 string (so Control Center / `kafka-console-consumer` display it cleanly).
-- The field **remains in the value payload** — keying is purely additive; the Avro schema is unchanged.
+- The field **remains in the value payload** - keying is purely additive; the Avro schema is unchanged.
 - Useful for partitioning by user, host, IP, or correlation ID so all events for the same entity land on the same partition (and therefore preserve order).
 
 ### Topic Partitions
 
-When the producer creates a topic, it uses `-p`/`--partitions` (default `6`). This only applies at **creation time** — if the topic already exists, the flag is ignored and Kafka keeps the existing partition count. To change partitions on an existing topic you must delete it or use `kafka-topics --alter --partitions N` (which can only **increase** the count, and will break keyed-message ordering guarantees for existing keys).
+When the producer creates a topic, it uses `-p`/`--partitions` (default `6`). This only applies at **creation time** - if the topic already exists, the flag is ignored and Kafka keeps the existing partition count. To change partitions on an existing topic you must delete it or use `kafka-topics --alter --partitions N` (which can only **increase** the count, and will break keyed-message ordering guarantees for existing keys).
 
 ### Schema ID Location
 
@@ -318,14 +318,14 @@ The Avro [schema ID](https://www.confluent.io/blog/schema-id-kafka-headers-data-
 | `body`    | Schema ID is prefixed inside the value bytes as `0x00 <4-byte big-endian id>` (5 bytes).  | Legacy. Required for older consumers or libraries that haven't adopted header framing yet.                               |
 
 ```bash
-# Default — schema ID in headers
+# Default - schema ID in headers
 python siem_producer.py dns_log -t dns_log
 
 # Legacy body framing
 python siem_producer.py dns_log -t dns_log -s body
 ```
 
-Don't mix modes within the same topic — a topic written with one mode and consumed with a client expecting the other will fail to deserialize.
+Don't mix modes within the same topic - a topic written with one mode and consumed with a client expecting the other will fail to deserialize.
 
 ### Dry Run Mode
 
@@ -361,13 +361,13 @@ python siem_producer.py dns_log -t dns_log --schema schemas/dns_log.avsc
 ```
 
 - The file must be a valid Avro schema in JSON form; it is registered with Schema Registry **as-is** (no normalisation beyond `json.loads` / `json.dumps`).
-- The rendered records must conform to the schema — fields the schema requires must be produced by the template, and types must match.
+- The rendered records must conform to the schema - fields the schema requires must be produced by the template, and types must match.
 - `--namespace` / `-ns` is ignored in this mode (the namespace already lives in the schema file).
 - Useful when you need a stable schema across environments, want to control naming/defaults/docs that inference doesn't produce, or are evolving a schema by hand to manage BACKWARD compatibility.
 
 ### Inspecting the Inferred Schema
 
-Use `--inferred-schema` to print the schema the producer would register and exit — no Kafka or Schema Registry connection is made, and `-t/--topic` is not required:
+Use `--inferred-schema` to print the schema the producer would register and exit - no Kafka or Schema Registry connection is made, and `-t/--topic` is not required:
 
 ```bash
 python siem_producer.py dns_log --inferred-schema
@@ -378,11 +378,11 @@ Handy for:
 - Verifying which fields picked up logical types (`timestamp-millis`, `iso-8601-timestamp`) from `now()` / `unix_time_stamp()`.
 - Reviewing a schema change before it hits Schema Registry.
 
-Combining `--inferred-schema` with `--schema` will print the file you supplied rather than an inferred one — useful as a quick syntax check that the file is valid JSON before you try to produce against it.
+Combining `--inferred-schema` with `--schema` will print the file you supplied rather than an inferred one - useful as a quick syntax check that the file is valid JSON before you try to produce against it.
 
 ### Raw-Text Payloads (`--no-schema`)
 
-Use `--no-schema` for templates whose output is not a JSON record — e.g. NGINX access logs, plain syslog lines, CSV rows. The rendered template is encoded as UTF-8 and produced directly to Kafka with no Avro serialization, no Schema Registry call, and no schema-id framing.
+Use `--no-schema` for templates whose output is not a JSON record - e.g. NGINX access logs, plain syslog lines, CSV rows. The rendered template is encoded as UTF-8 and produced directly to Kafka with no Avro serialization, no Schema Registry call, and no schema-id framing.
 
 ```bash
 # Preview a raw NGINX access log
@@ -400,7 +400,7 @@ python siem_producer.py nginx_access_log -t nginx_access_log --no-schema
 ## How It Works
 
 1. **Template Rendering**: The Python script reads your template and renders it with random data
-2. **Schema Inference**: Several sample records are generated and merged to infer the Avro schema — this prevents fields that happen to be empty arrays in the first sample from being permanently typed as `array<string>`
+2. **Schema Inference**: Several sample records are generated and merged to infer the Avro schema - this prevents fields that happen to be empty arrays in the first sample from being permanently typed as `array<string>`
 3. **Schema Registration**: Schema is registered with Schema Registry
 4. **Avro Serialization**: Data is serialized using the inferred Avro schema
 5. **Kafka Production**: Serialized data is produced to the specified topic
@@ -409,10 +409,10 @@ python siem_producer.py nginx_access_log -t nginx_access_log --no-schema
 
 Templates are [Jinja2](https://jinja.palletsprojects.com/) files (`.j2`) that render to JSON. Two conventions:
 
-- **String fields** use the built-in `tojson` filter — it provides the JSON quotes and escapes special characters: `{{ helper(...) | tojson }}`
+- **String fields** use the built-in `tojson` filter - it provides the JSON quotes and escapes special characters: `{{ helper(...) | tojson }}`
 - **Numeric fields** render the raw value: `{{ helper(...) }}`
 
-**Exception — `now()` and `unix_time_stamp()`** emit a JSON-shaped marker on their own so the Avro schema inferrer can attach a `logicalType` to the field. Render them bare (no `| tojson`):
+**Exception - `now()` and `unix_time_stamp()`** emit a JSON-shaped marker on their own so the Avro schema inferrer can attach a `logicalType` to the field. Render them bare (no `| tojson`):
 
 ```jinja
 {
@@ -430,7 +430,7 @@ Templates are [Jinja2](https://jinja.palletsprojects.com/) files (`.j2`) that re
 - `unix_time_stamp(N)` - Unix timestamp in **milliseconds**, randomly chosen between now and N seconds ago. The field's Avro schema gets `{"type": "long", "logicalType": "timestamp-millis"}`. Render bare (no `| tojson`).
 - `ip("CIDR")` - Random IP from CIDR range (string)
 - `guid()` - Random UUID4 as a lowercase hyphenated string, e.g. `"550e8400-e29b-41d4-a716-446655440000"` (string). Use in place of a hand-rolled `regex("[0-9a-f]{8}-...")` for event/trace/correlation IDs.
-- `randoms(source)` - Random choice from `source`, which is either a pipe-separated string (`"a|b|c"`) or any sequence — typically one of the lists loaded from `templates/data/` and exposed as `data.<filename>` (e.g. `randoms(data.countries)`). Repeat values to bias the distribution: `"info|info|info|warning"`. Cast to a number with `| int` when emitting into a numeric field (e.g. `randoms(data.known_ports) | int`).
+- `randoms(source)` - Random choice from `source`, which is either a pipe-separated string (`"a|b|c"`) or any sequence - typically one of the lists loaded from `templates/data/` and exposed as `data.<filename>` (e.g. `randoms(data.countries)`). Repeat values to bias the distribution: `"info|info|info|warning"`. Cast to a number with `| int` when emitting into a numeric field (e.g. `randoms(data.known_ports) | int`).
 - `data.<filename>` - List of stripped, non-empty, non-comment lines loaded from `templates/data/<filename>` at startup. See **External Data Sources** below.
 - `integer(min, max)` - Random integer in range (accepts negative bounds)
 - `floating(min, max, decimals=2)` - Random floating-point number, accepts negatives
@@ -563,7 +563,7 @@ For realistic time-series data where each reading should drift from the previous
 
 **Important Notes:**
 - Pools are initialized once at startup and persist across all renders
-- Don't pass default values to `pool()` — it overrides the carefully initialized baselines
+- Don't pass default values to `pool()` - it overrides the carefully initialized baselines
 - Use small standard deviations in `gaussian()` for drift (0.1-1.0) vs. large ones for initial baselines (5.0-15.0)
 - Static attributes (location, firmware) are retrieved but never updated
 
@@ -571,7 +571,7 @@ For realistic time-series data where each reading should drift from the previous
 
 The `{{regex "pattern"}}` function generates random strings matching regex patterns. Perfect for creating realistic formatted data like SSNs, phone numbers, license plates, etc.
 
-**Supported regex features:** anything Python's `re` module supports — the generator delegates to the [`exrex`](https://pypi.org/project/exrex/) library. Common examples:
+**Supported regex features:** anything Python's `re` module supports - the generator delegates to the [`exrex`](https://pypi.org/project/exrex/) library. Common examples:
 - `\d`, `\w`, `\s` - digit / word / whitespace
 - `[a-z]`, `[A-Z]`, `[0-9]`, `[^abc]` - character classes (incl. negation)
 - `{n}`, `{n,m}`, `+`, `*`, `?` - repetition
@@ -612,14 +612,14 @@ templates/data/
 └── users
 ```
 
-At startup the producer reads every file in that directory and exposes it on the Jinja2 `data` global, keyed by filename. A file named `countries` becomes `data.countries` — a Python list of strings.
+At startup the producer reads every file in that directory and exposes it on the Jinja2 `data` global, keyed by filename. A file named `countries` becomes `data.countries` - a Python list of strings.
 
 **File format**
 - One value per line.
 - Surrounding whitespace is trimmed and blank lines are ignored.
-- Lines whose first non-whitespace character is `#` are treated as comments and skipped — handy for grouping or annotating entries. There's no escape for a literal leading `#`; if you genuinely need a value that starts with `#` (e.g. a hex color like `#FF5733`), generate it from a template helper such as `regex("#[0-9A-F]{6}")` instead of putting it in a data file.
+- Lines whose first non-whitespace character is `#` are treated as comments and skipped - handy for grouping or annotating entries. There's no escape for a literal leading `#`; if you genuinely need a value that starts with `#` (e.g. a hex color like `#FF5733`), generate it from a template helper such as `regex("#[0-9A-F]{6}")` instead of putting it in a data file.
 - Filename (no extension required) becomes the attribute name; stick to identifier-safe names so `data.foo` works (use `data["foo-bar"]` if you really need a dash).
-- Repeat lines to bias the distribution — `US` appearing 11× and `JP` 3× makes `US` ~3.7× more likely.
+- Repeat lines to bias the distribution - `US` appearing 11× and `JP` 3× makes `US` ~3.7× more likely.
 
 Example with comments:
 
@@ -646,7 +646,7 @@ containerd
 }
 ```
 
-Everything in `data.*` is a list of **strings** — cast to a number with `| int` (or `| float`) when emitting into a numeric field, just like inline `randoms("80|443") | int`.
+Everything in `data.*` is a list of **strings** - cast to a number with `| int` (or `| float`) when emitting into a numeric field, just like inline `randoms("80|443") | int`.
 
 **Extending a data source inline**
 
@@ -676,26 +676,26 @@ If the same combined pool is reused across several fields in one template, build
 }
 ```
 
-The same trick works for filtering, slicing, or sorting (`data.users | reject("startswith", "svc-") | list`, `data.countries[:5]`, etc.) — anything Jinja2 can do to a list works against `data.*` for free.
+The same trick works for filtering, slicing, or sorting (`data.users | reject("startswith", "svc-") | list`, `data.countries[:5]`, etc.) - anything Jinja2 can do to a list works against `data.*` for free.
 
 **Adding your own data source**
 
 1. Drop a new file into `templates/data/` (e.g. `templates/data/usernames`).
 2. Put one value per line; repeat values to weight the distribution.
 3. Reference it from any template as `data.usernames`.
-4. Restart the producer — files are loaded once at startup.
+4. Restart the producer - files are loaded once at startup.
 
-Because `data.*` values are ordinary Python lists, every Jinja2 list construct works on them too — e.g. iterate with `{% for u in data.usernames %}…{% endfor %}` or pick at random with the built-in filter: `{{ data.countries | random | tojson }}`.
+Because `data.*` values are ordinary Python lists, every Jinja2 list construct works on them too - e.g. iterate with `{% for u in data.usernames %}…{% endfor %}` or pick at random with the built-in filter: `{{ data.countries | random | tojson }}`.
 
 **When to use a data file vs. inline `randoms("a|b|c")`**
-- **Data file** — long lists, lists shared across templates, anything a non-developer should be able to edit, or anything you want under version control as data rather than code.
-- **Inline** — short, template-specific options where the distribution is part of the template's meaning (e.g. `randoms("info|info|info|warning|error")`).
+- **Data file** - long lists, lists shared across templates, anything a non-developer should be able to edit, or anything you want under version control as data rather than code.
+- **Inline** - short, template-specific options where the distribution is part of the template's meaning (e.g. `randoms("info|info|info|warning|error")`).
 
 ## Creating Custom Templates
 
 1. Create a new `.j2` file in `templates/`.
 2. Write the template using the Jinja2 conventions described above (`| tojson` for strings, bare `{{ }}` for numbers).
-3. Run the producer with the file's basename — e.g. `templates/my_log.j2` → `python siem_producer.py my_log`.
+3. Run the producer with the file's basename - e.g. `templates/my_log.j2` → `python siem_producer.py my_log`.
 
 ### Worked example
 
@@ -732,11 +732,11 @@ The Avro schema is inferred from a few rendered samples and registered automatic
 
 ### Common patterns
 
-- **String values** — `{{ helper(...) | tojson }}`. `tojson` adds the surrounding quotes and escapes anything that needs escaping (backslashes, control chars, embedded quotes). Don't add your own `"..."` around the expression.
-- **Numeric values** — `{{ helper(...) }}`. No quotes, no filter; the bare value parses as a JSON number.
-- **`randoms()` producing a number** — `{{ randoms("80|443|22") | int }}`. `randoms` always returns a string; `| int` (or `| float`) casts so it renders as a JSON number.
-- **Nested objects / arrays** — write the JSON structure literally; only the expressions inside `{{ ... }}` are dynamic.
-- **Correlated fields** — full Jinja2 is available, so use `{% set %}` and `{% if %}` to derive one field from another:
+- **String values** - `{{ helper(...) | tojson }}`. `tojson` adds the surrounding quotes and escapes anything that needs escaping (backslashes, control chars, embedded quotes). Don't add your own `"..."` around the expression.
+- **Numeric values** - `{{ helper(...) }}`. No quotes, no filter; the bare value parses as a JSON number.
+- **`randoms()` producing a number** - `{{ randoms("80|443|22") | int }}`. `randoms` always returns a string; `| int` (or `| float`) casts so it renders as a JSON number.
+- **Nested objects / arrays** - write the JSON structure literally; only the expressions inside `{{ ... }}` are dynamic.
+- **Correlated fields** - full Jinja2 is available, so use `{% set %}` and `{% if %}` to derive one field from another:
 
   ```jinja
   {% set action = randoms("allow|allow|deny") %}
@@ -768,9 +768,9 @@ Integers are always emitted as `long` rather than `int`. Picking based on a samp
 | `now()`                 | `{"type": "string", "logicalType": "iso-8601-timestamp"}`        |
 | `unix_time_stamp(N)`    | `{"type": "long", "logicalType": "timestamp-millis"}`            |
 
-These helpers emit a JSON-shaped marker (`{"__logicaltype_<name>__": <value>}`) that the renderer unwraps after parsing — the marker tells the schema inferrer which `logicalType` to attach, and the data going to Kafka is the bare value (string or long). Because they're already JSON, render them bare (`{{ now() }}`, `{{ unix_time_stamp(60) }}`) without `| tojson`.
+These helpers emit a JSON-shaped marker (`{"__logicaltype_<name>__": <value>}`) that the renderer unwraps after parsing - the marker tells the schema inferrer which `logicalType` to attach, and the data going to Kafka is the bare value (string or long). Because they're already JSON, render them bare (`{{ now() }}`, `{{ unix_time_stamp(60) }}`) without `| tojson`.
 
-`iso-8601-timestamp` is a custom (non-standard) logical type — Avro readers that don't recognize it fall back to treating the field as a plain `string`, which is the desired behavior. `timestamp-millis` is part of the [Avro spec](https://avro.apache.org/docs/current/specification/#logical-types).
+`iso-8601-timestamp` is a custom (non-standard) logical type - Avro readers that don't recognize it fall back to treating the field as a plain `string`, which is the desired behavior. `timestamp-millis` is part of the [Avro spec](https://avro.apache.org/docs/current/specification/#logical-types).
 
 ## Configuration
 

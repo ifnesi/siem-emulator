@@ -1,4 +1,4 @@
-# SIEM Emulator — Linux Service Setup (EC2)
+# SIEM Emulator - Linux Service Setup (EC2)
 
 This guide explains how to run the SIEM emulator components as persistent
 **systemd** services on an Amazon Linux 2 / Amazon Linux 2023 EC2 instance so
@@ -77,7 +77,7 @@ bash services_ctl.sh status
 # Follow logs for a specific service via journald
 journalctl -u siem-producer-dns -f
 
-# Follow logs via the on-disk log file (after logging setup — see below)
+# Follow logs via the on-disk log file (after logging setup - see below)
 tail -f /var/log/siem/producer-dns.log
 
 # Reload a unit file after editing it
@@ -91,7 +91,7 @@ sudo systemctl restart siem-producer-dns
 
 All services write to the console, which systemd captures via **journald**. To
 also write logs to disk (one file per service, rotated daily, kept for 30 days)
-run the logging setup script — **no Python code changes required**. It works by
+run the logging setup script - **no Python code changes required**. It works by
 reading the `SyslogIdentifier` field that each `.service` unit already sets and
 forwarding matching entries from journald to per-service files via rsyslog.
 
