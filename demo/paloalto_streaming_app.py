@@ -37,6 +37,7 @@ from utils import (
     DEFAULT_RETENTION_MS,
     DEFAULT_SCHEMA_DIR,
     POLL_TIMEOUT,
+    MAX_POLL_INTERVAL_MS,
     build_sr_client,
     ensure_topics,
     load_properties,
@@ -241,7 +242,7 @@ def build_record(
     fields,
 ):
     """Build an Avro-ready dict from positional CSV tokens via a layout."""
-    record = {}
+    record = dict()
     for name, idx, kind in layout:
         raw = fields[idx] if idx < len(fields) else None
         record[name] = coerce(raw, kind)
@@ -278,6 +279,12 @@ def main():
         default=DEFAULT_RETENTION_MS,
         help="retention.ms for topics created by this app (default: 1 day)",
     )
+    ap.add_argument(
+        "--max-poll-interval-ms",
+        type=int,
+        default=MAX_POLL_INTERVAL_MS,
+        help=f"max.poll.interval.ms for the consumer (default: {MAX_POLL_INTERVAL_MS/(60 * 1000):.0f} min); increase if emit phase is slow",
+    )
     args = ap.parse_args()
 
     kafka_conf = load_properties(args.kafka_config)
@@ -287,8 +294,8 @@ def main():
     sr_client = build_sr_client(sr_conf, kafka_conf)
 
     # Build per-route: positional layout, dest topic, and Avro serializer.
-    routes = {}
-    dest_topics = []
+    routes = dict()
+    dest_topics = list()
     for (log_type, subtype), layout in LAYOUTS.items():
         path = os.path.join(args.schema_dir, schema_filename(log_type, subtype))
         with open(path) as fh:
@@ -321,6 +328,7 @@ def main():
             "client.id": f"{CONSUMER_GROUP}-001",
             "auto.offset.reset": AUTO_OFFSET_RESET,
             "enable.auto.commit": True,
+            "max.poll.interval.ms": args.max_poll_interval_ms,
         }
     )
     consumer = Consumer(consumer_conf)

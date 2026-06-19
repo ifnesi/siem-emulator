@@ -42,10 +42,10 @@ class TemplateRenderer:
     _LOGICALTYPE_SUFFIX = "__"
 
     def __init__(self, data_dir: Path | None = None) -> None:
-        self.counters: dict[str, int] = {}
-        self.logical_types: dict[str, str] = {}
+        self.counters: dict[str, int] = dict()
+        self.logical_types: dict[str, str] = dict()
         # State pools: pre-generated pools of values indexed by key
-        self.state_pools: dict[str, dict[str, Any]] = {}
+        self.state_pools: dict[str, dict[str, Any]] = dict()
         self.env = jinja2.Environment(
             autoescape=False,
             undefined=jinja2.StrictUndefined,
@@ -75,7 +75,7 @@ class TemplateRenderer:
                 "floating": self._floating,
                 "gaussian": self._gaussian,
                 "regex": self._generate_from_regex,
-                "data": self._load_data(data_dir) if data_dir else {},
+                "data": self._load_data(data_dir) if data_dir else dict(),
                 "init_pool": self._init_pool,
                 "pool": self._get_from_pool,
                 "update_pool": self._update_pool,
@@ -91,8 +91,8 @@ class TemplateRenderer:
         ignored, so files can be self-documented. A file named `known_ports`
         becomes `data.known_ports` in templates."""
         if not data_dir.is_dir():
-            return {}
-        loaded: dict[str, list[str]] = {}
+            return dict()
+        loaded: dict[str, list[str]] = dict()
         for path in sorted(data_dir.iterdir()):
             if not path.is_file() or path.name.startswith("."):
                 continue
@@ -386,7 +386,7 @@ def infer_avro_schema(
     `{"__logicaltype_timestamp-millis__": ...}`.
     """
 
-    logical_types = logical_types or {}
+    logical_types = logical_types or dict()
     used_names: set[str] = set()
 
     def _unique(base: str) -> str:
@@ -516,7 +516,7 @@ def sample_for_schema(
 
 def load_config(config_file: str) -> Dict[str, str]:
     """Load key=value pairs from a properties file (comments and blanks ignored)."""
-    config: dict[str, str] = {}
+    config: dict[str, str] = dict()
     with open(config_file, "r", encoding="utf-8") as f:
         for raw_line in f:
             line = raw_line.strip()
@@ -596,9 +596,14 @@ def create_producer(
     return Producer(producer_config)
 
 
+_delivery_failures: dict[str, int] = dict()
+
+
 def delivery_report(err, msg) -> None:
     """Delivery callback — logs only on failure to avoid flooding stdout."""
     if err is not None:
+        key = str(err)
+        _delivery_failures[key] = _delivery_failures.get(key, 0) + 1
         logger.error("Message delivery failed: %s", err)
 
 
@@ -720,13 +725,13 @@ def main() -> None:
     parser.add_argument(
         "--message-timeout-ms",
         type=int,
-        default=60000,
+        default=120000,
         help="Message delivery timeout in ms (default: 60000)",
     )
     parser.add_argument(
         "--linger-ms",
         type=int,
-        default=5,
+        default=100,
         help="Linger time in ms before sending a batch (default: 5)",
     )
     parser.add_argument(
@@ -750,7 +755,7 @@ def main() -> None:
         parser.error("-f/--frequency must be >= 0")
 
     if args.no_schema:
-        conflicts = []
+        conflicts = list()
         if args.schema:
             conflicts.append("--schema")
         if args.inferred_schema:
@@ -776,7 +781,7 @@ def main() -> None:
     renderer = TemplateRenderer(data_dir=Path(args.templates_dir) / "data")
     template = renderer.compile(template_content)
 
-    sample_data: Dict[str, Any] = {}
+    sample_data: Dict[str, Any] = dict()
     avro_schema_str = ""
 
     if not args.no_schema:
@@ -937,7 +942,7 @@ def main() -> None:
                 # populates the passed headers list with the schema-id entry,
                 # which we then forward to producer.produce(). For body
                 # (prefix) mode the list stays empty and is harmless.
-                headers: list = []
+                headers: list = list()
                 message_key = None
 
                 if args.no_schema:
@@ -1052,7 +1057,11 @@ def main() -> None:
                 "%d message(s) still in queue after 30s flush timeout",
                 remaining,
             )
-        logger.info("Total records produced: %d", count)
+        total_failed = sum(_delivery_failures.values())
+        logger.info("Total records produced: %d  |  delivery failures: %d", count, total_failed)
+        if _delivery_failures:
+            for reason, n in sorted(_delivery_failures.items(), key=lambda x: -x[1]):
+                logger.warning("  %dx %s", n, reason)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from confluent_kafka.serialization import StringSerializer
 NUM_PARTITIONS = 1
 REPLICATION_FACTOR = 1
 DEFAULT_RETENTION_MS = 86400000  # retention.ms for topics we create (1 day)
+MAX_POLL_INTERVAL_MS = 1800000   #  max.poll.interval.ms for the consumer (default: 30 min)
 AUTO_OFFSET_RESET = "earliest"
 POLL_TIMEOUT = 1.0
 ADMIN_OP_TIMEOUT = 30.0

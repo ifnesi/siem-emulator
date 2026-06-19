@@ -40,6 +40,7 @@ from utils import (
     DEFAULT_RETENTION_MS,
     DEFAULT_SCHEMA_DIR,
     POLL_TIMEOUT,
+    MAX_POLL_INTERVAL_MS,
     build_sr_client,
     ensure_topics,
     load_properties,
@@ -130,6 +131,12 @@ def main():
         default=DEFAULT_RETENTION_MS,
         help="retention.ms for topics created by this app (default: 1 day)",
     )
+    ap.add_argument(
+        "--max-poll-interval-ms",
+        type=int,
+        default=MAX_POLL_INTERVAL_MS,
+        help=f"max.poll.interval.ms for the consumer (default: {MAX_POLL_INTERVAL_MS/(60 * 1000):.0f} min); increase if emit phase is slow",
+    )
     args = ap.parse_args()
 
     kafka_conf = load_properties(args.kafka_config)
@@ -139,8 +146,8 @@ def main():
     sr_client = build_sr_client(sr_conf, kafka_conf)
 
     # Discover every windows_<slug>_<eventid>.avsc and build a route per file.
-    routes = {}
-    dest_topics = []
+    routes = dict()
+    dest_topics = list()
     for path in sorted(glob.glob(os.path.join(args.schema_dir, "windows_*.avsc"))):
         slug, eventid = route_from_filename(path)
         with open(path) as fh:
@@ -177,6 +184,7 @@ def main():
             "client.id": f"{CONSUMER_GROUP}-001",
             "auto.offset.reset": AUTO_OFFSET_RESET,
             "enable.auto.commit": True,
+            "max.poll.interval.ms": args.max_poll_interval_ms,
         }
     )
     consumer = Consumer(consumer_conf)

@@ -40,7 +40,7 @@ import time
 import argparse
 from datetime import datetime, timezone
 
-from confluent_kafka import Consumer, Producer, KafkaError, TopicPartition
+from confluent_kafka import Consumer, Producer, KafkaError, KafkaException, TopicPartition
 from confluent_kafka.admin import AdminClient
 from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserializer
 from confluent_kafka.serialization import (
@@ -53,6 +53,7 @@ from utils import (
     DEFAULT_RETENTION_MS,
     DEFAULT_SCHEMA_DIR,
     POLL_TIMEOUT,
+    MAX_POLL_INTERVAL_MS,
     build_sr_client,
     ensure_topics,
     load_properties,
@@ -129,7 +130,7 @@ def update_state(
     """Fold one DNS event into its event-time window bucket. Returns window_start."""
     ts = _ts_millis(event.get("ts"))
     window_start = window_floor(ts, window_ms)
-    groups = windows.setdefault(window_start, {})
+    groups = windows.setdefault(window_start, dict())
     group = tuple(str(event.get(f, "")) for f in GROUP_FIELDS)
     agg = groups.get(group)
     if agg is None:
@@ -250,6 +251,12 @@ def main():
         default=DEFAULT_RETENTION_MS,
         help="retention.ms for topics created by this app (default: 1 day)",
     )
+    ap.add_argument(
+        "--max-poll-interval-ms",
+        type=int,
+        default=MAX_POLL_INTERVAL_MS,
+        help=f"max.poll.interval.ms for the consumer (default: {MAX_POLL_INTERVAL_MS/(60 * 1000):.0f} min); increase if emit phase is slow",
+    )
     args = ap.parse_args()
 
     window_seconds = args.window_seconds
@@ -284,6 +291,7 @@ def main():
             "client.id": f"{CONSUMER_GROUP}-001",
             "auto.offset.reset": AUTO_OFFSET_RESET,
             "enable.auto.commit": False,  # we commit only after producing aggregates
+            "max.poll.interval.ms": args.max_poll_interval_ms,
         }
     )
     consumer = Consumer(consumer_conf)
@@ -334,11 +342,21 @@ def main():
             commit_off = min(pending) if pending else last + 1
             tps.append(TopicPartition(args.source_topic, partition, commit_off))
         if tps:
-            consumer.commit(offsets=tps, asynchronous=False)
+            try:
+                consumer.commit(offsets=tps, asynchronous=False)
+            except KafkaException as exc:
+                err = exc.args[0]
+                if err.code() == KafkaError.ILLEGAL_GENERATION:
+                    logger.warning(
+                        "Offset commit skipped — consumer rejoined group during emit "
+                        "(ILLEGAL_GENERATION); offsets will be recommitted after rejoin"
+                    )
+                else:
+                    raise
 
     def release_offsets(window_start):
         """Drop the emitted window's offsets from the open-offset bookkeeping."""
-        for partition, offsets in window_offsets.pop(window_start, {}).items():
+        for partition, offsets in window_offsets.pop(window_start, dict()).items():
             pmap = buffered.get(partition)
             if pmap:
                 for off in offsets:
@@ -439,9 +457,9 @@ def main():
                     continue
 
                 update_state(windows, event, window_ms)
-                buffered.setdefault(partition, {})[offset] = window_start
-                window_offsets.setdefault(window_start, {}).setdefault(
-                    partition, []
+                buffered.setdefault(partition, dict())[offset] = window_start
+                window_offsets.setdefault(window_start, dict()).setdefault(
+                    partition, list()
                 ).append(offset)
         finally:
             logger.info("Final flush of all open windows...")
