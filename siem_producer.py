@@ -869,6 +869,10 @@ def main() -> None:
                 "basic.auth.user.info"
             ]
 
+        ca = registry_config.get("ssl.ca.location")
+        if ca:
+            schema_registry_conf["ssl.ca.location"] = ca
+
         schema_registry_client = SchemaRegistryClient(schema_registry_conf)
         schema_id_serializer = (
             header_schema_id_serializer
