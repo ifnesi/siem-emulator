@@ -124,6 +124,25 @@ class TemplateRenderer:
         non-structured payloads like NGINX access logs or syslog lines."""
         return template.render()
 
+    def render_raw_with_key(self, template: jinja2.Template, key_field: str) -> tuple[str, Any]:
+        """Render a compiled template and extract a specific variable value.
+        
+        Uses Jinja2's module compilation to access template variables after rendering.
+        
+        Returns:
+            tuple: (rendered_output, key_value) where key_value is None if not found
+        """
+        # Compile template as a module to get access to variables
+        module = template.make_module()
+        
+        # The rendered output is in the module
+        raw_output = str(module)
+        
+        # Try to get the key field from the module's namespace
+        key_value = getattr(module, key_field, None)
+        
+        return raw_output, key_value
+
     def render(
         self,
         template: jinja2.Template,
@@ -702,9 +721,10 @@ def main() -> None:
         "--key",
         default=None,
         help=(
-            "Top-level field whose value is used as the Kafka message key "
-            "(must be a scalar: string, int, float, or bool). The field "
-            "remains in the value payload. Default: no key (null)."
+            "Field whose value is used as the Kafka message key. "
+            "For JSON (default): top-level field (must be scalar: string, int, float, or bool). "
+            "For raw text (--no-schema): field name to extract from key=value format. "
+            "The field remains in the value payload. Default: no key (null)."
         ),
     )
     parser.add_argument(
@@ -760,8 +780,6 @@ def main() -> None:
             conflicts.append("--schema")
         if args.inferred_schema:
             conflicts.append("--inferred-schema")
-        if args.key:
-            conflicts.append("-k/--key")
         if conflicts:
             parser.error(f"--no-schema cannot be combined with: {', '.join(conflicts)}")
 
@@ -951,9 +969,32 @@ def main() -> None:
 
                 if args.no_schema:
                     try:
-                        serialized_value = renderer.render_raw(
-                            template=template
-                        ).encode("utf-8")
+                        if args.key:
+                            # Render with key extraction
+                            raw_text, key_value = renderer.render_raw_with_key(
+                                template=template,
+                                key_field=args.key
+                            )
+                            serialized_value = raw_text.encode("utf-8")
+                            
+                            # Use extracted key if found and is scalar
+                            if key_value is not None:
+                                if isinstance(key_value, (str, int, float, bool)):
+                                    message_key = str(key_value).encode("utf-8")
+                                else:
+                                    logger.warning(
+                                        "Key field '%s' is not a scalar type (got %s); using null key",
+                                        args.key,
+                                        type(key_value).__name__
+                                    )
+                            else:
+                                logger.warning(
+                                    "Key field '%s' not found in template; using null key",
+                                    args.key
+                                )
+                        else:
+                            # No key needed, use simple render
+                            serialized_value = renderer.render_raw(template=template).encode("utf-8")
                     except Exception as e:
                         logger.error("Error rendering template: %s", e)
                         consecutive_failures += 1
