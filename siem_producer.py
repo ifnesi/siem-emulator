@@ -124,23 +124,25 @@ class TemplateRenderer:
         non-structured payloads like NGINX access logs or syslog lines."""
         return template.render()
 
-    def render_raw_with_key(self, template: jinja2.Template, key_field: str) -> tuple[str, Any]:
+    def render_raw_with_key(
+        self, template: jinja2.Template, key_field: str
+    ) -> tuple[str, Any]:
         """Render a compiled template and extract a specific variable value.
-        
+
         Uses Jinja2's module compilation to access template variables after rendering.
-        
+
         Returns:
             tuple: (rendered_output, key_value) where key_value is None if not found
         """
         # Compile template as a module to get access to variables
         module = template.make_module()
-        
+
         # The rendered output is in the module
         raw_output = str(module)
-        
+
         # Try to get the key field from the module's namespace
         key_value = getattr(module, key_field, None)
-        
+
         return raw_output, key_value
 
     def render(
@@ -640,9 +642,37 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="SIEM Data Producer for Kafka with Avro"
     )
-    parser.add_argument("template", help="Template name (without .j2 extension)")
     parser.add_argument(
-        "-t", "--topic", help="Kafka topic (not required in dry-run mode)"
+        "template",
+        help="Template name (without .j2 extension)",
+    )
+    parser.add_argument(
+        "-t",
+        "--topic",
+        help="Kafka topic (not required in dry-run mode)",
+    )
+    parser.add_argument(
+        "-p",
+        "--partitions",
+        type=int,
+        default=3,
+        help="Number of partitions when creating the topic (default: 3). "
+        "Ignored if the topic already exists.",
+    )
+    parser.add_argument(
+        "-rf",
+        "--replication-factor",
+        type=int,
+        default=1,
+        help="Replication factor when creating the topic (default: 1). "
+        "Ignored if the topic already exists.",
+    )
+    parser.add_argument(
+        "--retention-ms",
+        type=int,
+        default=DEFAULT_RETENTION_MS,
+        help="retention.ms set when creating the topic (default: 1 day = "
+        "86400000). Ignored if the topic already exists.",
     )
     parser.add_argument(
         "-f",
@@ -689,21 +719,6 @@ def main() -> None:
         "--namespace",
         default="io.confluent.siem",
         help="Avro schema namespace, ignored when a schema is set (default: io.confluent.siem)",
-    )
-    parser.add_argument(
-        "-p",
-        "--partitions",
-        type=int,
-        default=6,
-        help="Number of partitions when creating the topic (default: 6). "
-        "Ignored if the topic already exists.",
-    )
-    parser.add_argument(
-        "--retention-ms",
-        type=int,
-        default=DEFAULT_RETENTION_MS,
-        help="retention.ms set when creating the topic (default: 1 day = "
-        "86400000). Ignored if the topic already exists.",
     )
     parser.add_argument(
         "-s",
@@ -897,9 +912,7 @@ def main() -> None:
             if args.schema_id_location == "headers"
             else prefix_schema_id_serializer
         )
-        serializer_conf: dict[str, Any] = {
-            "schema.id.serializer": schema_id_serializer
-        }
+        serializer_conf: dict[str, Any] = {"schema.id.serializer": schema_id_serializer}
         # Honor auto.register.schemas from registry.properties (it's an
         # AvroSerializer option, not a SchemaRegistryClient one). Accepts the
         # usual truthy spellings; defaults to the SDK behaviour (True) when
@@ -923,6 +936,7 @@ def main() -> None:
         kafka_config,
         topic=args.topic,
         partitions=args.partitions,
+        replication=args.replication_factor,
         retention_ms=args.retention_ms,
     )
 
@@ -972,11 +986,10 @@ def main() -> None:
                         if args.key:
                             # Render with key extraction
                             raw_text, key_value = renderer.render_raw_with_key(
-                                template=template,
-                                key_field=args.key
+                                template=template, key_field=args.key
                             )
                             serialized_value = raw_text.encode("utf-8")
-                            
+
                             # Use extracted key if found and is scalar
                             if key_value is not None:
                                 if isinstance(key_value, (str, int, float, bool)):
@@ -985,16 +998,18 @@ def main() -> None:
                                     logger.warning(
                                         "Key field '%s' is not a scalar type (got %s); using null key",
                                         args.key,
-                                        type(key_value).__name__
+                                        type(key_value).__name__,
                                     )
                             else:
                                 logger.warning(
                                     "Key field '%s' not found in template; using null key",
-                                    args.key
+                                    args.key,
                                 )
                         else:
                             # No key needed, use simple render
-                            serialized_value = renderer.render_raw(template=template).encode("utf-8")
+                            serialized_value = renderer.render_raw(
+                                template=template
+                            ).encode("utf-8")
                     except Exception as e:
                         logger.error("Error rendering template: %s", e)
                         consecutive_failures += 1
@@ -1103,7 +1118,9 @@ def main() -> None:
                 remaining,
             )
         total_failed = sum(_delivery_failures.values())
-        logger.info("Total records produced: %d  |  delivery failures: %d", count, total_failed)
+        logger.info(
+            "Total records produced: %d  |  delivery failures: %d", count, total_failed
+        )
         if _delivery_failures:
             for reason, n in sorted(_delivery_failures.items(), key=lambda x: -x[1]):
                 logger.warning("  %dx %s", n, reason)

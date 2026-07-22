@@ -84,14 +84,24 @@ def ensure_topics(
     admin,
     topics,
     retention_ms=DEFAULT_RETENTION_MS,
+    num_partitions=NUM_PARTITIONS,
+    replication_factor=REPLICATION_FACTOR,
 ):
-    """Create any missing topics with NUM_PARTITIONS partitions and retention_ms."""
+    """Create any missing topics with specified partitions, replication factor and retention_ms.
+    
+    Args:
+        admin: AdminClient instance
+        topics: List of topic names to ensure exist
+        retention_ms: retention.ms config for created topics (default: 1 day)
+        num_partitions: Number of partitions for created topics (default: 1)
+        replication_factor: Replication factor for created topics (default: 1)
+    """
     existing = set(admin.list_topics(timeout=ADMIN_OP_TIMEOUT).topics.keys())
     to_create = [
         NewTopic(
             t,
-            num_partitions=NUM_PARTITIONS,
-            replication_factor=REPLICATION_FACTOR,
+            num_partitions=num_partitions,
+            replication_factor=replication_factor,
             config={
                 "retention.ms": str(retention_ms),
             },
@@ -106,9 +116,10 @@ def ensure_topics(
         try:
             fut.result()
             logger.info(
-                "Created topic '%s' (%d partitions)",
+                "Created topic '%s' (%d partitions, replication factor %d)",
                 topic,
-                NUM_PARTITIONS,
+                num_partitions,
+                replication_factor,
             )
         except Exception as e:  # noqa: BLE001 - already-exists races are fine
             if "already exists" in str(e).lower():

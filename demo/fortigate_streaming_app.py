@@ -149,6 +149,22 @@ def main():
         help="Source topic to consume raw FortiGate logs from",
     )
     ap.add_argument(
+        "-p",
+        "--partitions",
+        type=int,
+        default=1,
+        help="Number of partitions when creating topics (default: 1). "
+        "Ignored if topics already exist.",
+    )
+    ap.add_argument(
+        "-rf",
+        "--replication-factor",
+        type=int,
+        default=1,
+        help="Replication factor when creating topics (default: 1). "
+        "Ignored if topics already exist.",
+    )
+    ap.add_argument(
         "--retention-ms",
         type=int,
         default=DEFAULT_RETENTION_MS,
@@ -195,7 +211,13 @@ def main():
 
     # Ensure source + all destination topics exist with the right partition count.
     admin = AdminClient(kafka_conf)
-    ensure_topics(admin, [args.source_topic] + dest_topics, args.retention_ms)
+    ensure_topics(
+        admin,
+        [args.source_topic] + dest_topics,
+        args.retention_ms,
+        args.partitions,
+        args.replication_factor,
+    )
 
     key_serializer = string_serializer()
     producer = Producer(kafka_conf)

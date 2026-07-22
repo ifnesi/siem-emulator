@@ -234,6 +234,22 @@ def main():
         help="Source topic to consume raw DNS logs from",
     )
     ap.add_argument(
+        "-p",
+        "--partitions",
+        type=int,
+        default=1,
+        help="Number of partitions when creating topics (default: 1). "
+        "Ignored if topics already exist.",
+    )
+    ap.add_argument(
+        "-rf",
+        "--replication-factor",
+        type=int,
+        default=1,
+        help="Replication factor when creating topics (default: 1). "
+        "Ignored if topics already exist.",
+    )
+    ap.add_argument(
         "--window-seconds",
         type=int,
         default=WINDOW_SECONDS,
@@ -280,7 +296,13 @@ def main():
     key_serializer = string_serializer()
 
     admin = AdminClient(kafka_conf)
-    ensure_topics(admin, [args.source_topic, SINK_TOPIC], args.retention_ms)
+    ensure_topics(
+        admin,
+        [args.source_topic, SINK_TOPIC],
+        args.retention_ms,
+        args.partitions,
+        args.replication_factor,
+    )
 
     producer = Producer(kafka_conf)
 
