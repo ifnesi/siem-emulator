@@ -47,19 +47,33 @@ services:
       KAFKA_CONFLUENT_TELEMETRY_METRICS_COLLECTOR_INTERVAL_MS: "60000"
       KAFKA_CONFLUENT_TELEMETRY_REMOTECONFIG_CONFLUENT_ENABLED: "false"
       KAFKA_CONFLUENT_CONSUMER_LAG_EMITTER_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "broker:29092"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
 
   schema-registry:
     image: confluentinc/cp-schema-registry:${CP_VERSION}
     hostname: schema-registry
     container_name: schema-registry
     depends_on:
-      - broker
+      broker:
+        condition: service_healthy
     ports:
       - "8081:8081"
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker:29092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    healthcheck:
+      # No curl/wget in this image — python3 is available instead.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/subjects', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
 
   connect:
     image: cnfldemos/cp-server-connect-datagen:${CP_DATAGEN}
@@ -230,3 +244,24 @@ services:
       FLINK_PROPERTIES=
       jobmanager.rpc.address: flink-jobmanager
       taskmanager.numberOfTaskSlots: 10
+
+  # Runs siem_producer.py (raw events) + the demo/*_streaming_app.py apps
+  # (parsed sub-topics) in one container — see datagen/entrypoint.sh for the
+  # exact start order/timing. Only starts once broker + schema-registry
+  # report healthy.
+  siem-datagen:
+    build:
+      context: .
+      dockerfile: datagen/Dockerfile
+    container_name: siem-datagen
+    hostname: siem-datagen
+    depends_on:
+      broker:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: 'broker:29092'
+      SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+      START_DELAY: '2'
+    restart: unless-stopped

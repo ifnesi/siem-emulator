@@ -1,0 +1,108 @@
+# This file is meant to be used as a second -f alongside the root
+# docker-compose.yml, from the repo root:
+#   docker compose -f docker-compose.yml -f demo/AI-demo/docker-compose.ai-demo.yml up -d
+#
+# NOTE: build.context paths below are relative to the repo root, not to this
+# file's own directory (demo/AI-demo/) — Compose resolves relative paths in a
+# second -f file against the *project directory*, which defaults to the
+# directory of the *first* -f file (docker-compose.yml, i.e. the repo root),
+# regardless of which file actually declares the path. Don't "simplify" these
+# to be relative to this file — that breaks the build when run as documented
+# above.
+
+services:
+
+  # Adds a second, SASL_PLAINTEXT listener (internal to the docker network
+  # only) so mcp-confluent has something to authenticate against — its
+  # `direct` connection type requires kafka.auth and has no no-auth option.
+  # Existing listeners (used by siem_producer.py / streaming apps) are
+  # untouched. See demo/AI-demo/mcp-server/mcp-config.yaml for details.
+  broker:
+    environment:
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://broker:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092,SASL_PLAINTEXT://0.0.0.0:9095'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092,SASL_PLAINTEXT://broker:9095'
+      KAFKA_SASL_ENABLED_MECHANISMS: 'PLAIN'
+      # cp-server's config step aborts startup if KAFKA_OPTS is unset whenever
+      # SASL appears in the advertised listeners; the JAAS login below is
+      # supplied per-listener, so this only needs to be a harmless non-empty flag.
+      KAFKA_OPTS: '-Dsiem.ai-demo=1'
+      # cp-docker translates `_` -> `.` and `__` -> `_` in env var names. The
+      # listener is named SASL_PLAINTEXT (literal underscore), so the
+      # per-listener JAAS key must double the underscore between SASL and
+      # PLAINTEXT to survive that translation.
+      KAFKA_LISTENER_NAME_SASL__PLAINTEXT_PLAIN_SASL_JAAS_CONFIG: >-
+        org.apache.kafka.common.security.plain.PlainLoginModule required
+        username="mcp" password="mcp-secret"
+        user_mcp="mcp-secret";
+
+  mcp-confluent:
+    build:
+      context: ./demo/AI-demo/mcp-server
+    container_name: mcp-confluent
+    hostname: mcp-confluent
+    depends_on:
+      broker:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BOOTSTRAP: 'broker:9095'
+      SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+      KAFKA_MCP_USER: 'mcp'
+      KAFKA_MCP_PASSWORD: 'mcp-secret'
+    healthcheck:
+      # No curl/wget in node:22-slim — a plain TCP connect via Node itself is
+      # enough to tell "container exists" (depends_on's default) apart from
+      # "the HTTP server inside is actually accepting connections" (this).
+      test: ["CMD", "node", "-e", "require('net').connect(8080,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  ai-webui:
+    build:
+      context: ./demo/AI-demo
+    container_name: ai-webui
+    depends_on:
+      mcp-confluent:
+        condition: service_healthy
+    ports:
+      - "5050:5050"
+    # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN / AWS_REGION /
+    # BEDROCK_MODEL live in demo/AI-demo/.env (gitignored — see .env.example)
+    # and are injected via env_file, not `${VAR}` substitution: Compose only
+    # auto-loads a top-level .env from the *project directory* (the repo root,
+    # since docker-compose.yml is the first -f file) for `${VAR}` substitution,
+    # never a .env sitting next to this file. Deliberately no AWS_*/BEDROCK_MODEL
+    # keys under `environment:` here — an explicit `environment:` key (even one
+    # that substitutes to an empty string) always overrides the same key from
+    # env_file, which would silently blank these out.
+    env_file:
+      - ./demo/AI-demo/.env
+    environment:
+      MCP_SERVER_URL: 'http://mcp-confluent:8080/mcp'
+      WEBUI_PORT: '5050'
+    command: ["python", "webui/app.py"]
+
+  # Terminal chat REPL — not started by `up`; run interactively:
+  #   docker compose -f docker-compose.yml -f demo/AI-demo/docker-compose.ai-demo.yml run --rm ai-cli
+  ai-cli:
+    build:
+      context: ./demo/AI-demo
+    container_name: ai-cli
+    profiles: ["cli"]
+    depends_on:
+      mcp-confluent:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    # See the comment on ai-webui's env_file above — same reasoning applies here.
+    env_file:
+      - ./demo/AI-demo/.env
+    environment:
+      MCP_SERVER_URL: 'http://mcp-confluent:8080/mcp'
+    command: ["python", "agent.py"]

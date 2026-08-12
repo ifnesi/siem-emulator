@@ -36,3 +36,6 @@ demo/config/
 # Quix Streams local state (RocksDB) + changelog
 demo/state/
 state/
+
+# Secrets
+demo/AI-demo/.env

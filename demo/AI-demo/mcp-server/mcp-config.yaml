@@ -1,0 +1,52 @@
+# Confluent MCP Server config — connects to this project's local
+# docker-compose SIEM cluster (broker + schema-registry).
+#
+# ── Kafka auth ──────────────────────────────────────────────────────────────
+# mcp-confluent's `direct` connection type requires a kafka.auth block (there
+# is no "no-auth" option in its schema) and defaults security.protocol to
+# sasl_ssl. The main docker-compose.yml broker is PLAINTEXT-only, so
+# docker-compose.ai-demo.yml adds a second, SASL_PLAINTEXT listener
+# (broker:9095, internal to the docker network only) purely so this
+# container has something to authenticate against — same pattern
+# mcp-confluent's own docker-compose.cp-test.yml uses for local testing.
+# Kafka access for the siem_producer.py / streaming-app scripts is untouched
+# (still plaintext on 9092/29092).
+#
+# ── HTTP transport / auth ───────────────────────────────────────────────────
+# `server.auth.disabled: true` turns off the (otherwise mandatory) API-key
+# check on the HTTP transport. Fine here since this endpoint is only reached
+# from the docker-compose network and localhost:8080 on your machine — do
+# not reuse this config as-is for anything internet-facing.
+
+server:
+  transports: [http]
+  log_level: "${LOG_LEVEL:-info}"
+  http:
+    port: ${HTTP_PORT:-8080}
+    host: "0.0.0.0"
+  auth:
+    disabled: true
+    allowed_hosts:
+      - localhost
+      - "127.0.0.1"
+      - mcp-confluent
+
+connections:
+  siem:
+    type: direct
+    description: "Local SIEM Confluent Platform cluster (docker-compose)"
+    read_only: true
+
+    kafka:
+      bootstrap_servers: "${KAFKA_BOOTSTRAP:-broker:9095}"
+      auth:
+        type: api_key
+        key: "${KAFKA_MCP_USER:-mcp}"
+        secret: "${KAFKA_MCP_PASSWORD:-mcp-secret}"
+      extra_properties:
+        security.protocol: "SASL_PLAINTEXT"
+
+    schema_registry:
+      endpoint: "${SCHEMA_REGISTRY_URL:-http://schema-registry:8081}"
+      # No auth block — this project's schema-registry service runs
+      # unauthenticated.

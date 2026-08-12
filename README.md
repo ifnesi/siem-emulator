@@ -899,6 +899,13 @@ docker compose down -v
         └── users              #   → data.users
 ```
 
+## AI Demo
+
+Want to query this cluster in natural language instead of `kafka-console-consumer`?
+See **[demo/AI-demo/README.md](demo/AI-demo/README.md)** — a Confluent MCP Server
+(`mcp-confluent`) plus a Web UI, terminal CLI, and Claude Code integration, all
+running in Docker alongside this stack.
+
 ## Resources
 
 - [Confluent Kafka Python](https://docs.confluent.io/kafka-clients/python/current/overview.html)
