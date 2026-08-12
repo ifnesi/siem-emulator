@@ -34,7 +34,7 @@ pip install -r requirements.txt
 docker compose up -d
 ```
 
-Wait 30-60 seconds for services to start. Access Control Center at http://localhost:9021
+Wait 30-60 seconds for services to start. Access Control Center at http://localhost:9021/home
 
 ### 3. Run Producers
 

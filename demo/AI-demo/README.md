@@ -62,6 +62,57 @@ Schema Registry needs no such change — it's already unauthenticated, and
 
 ---
 
+## Kafka Topics
+
+`siem-datagen` (see [Setup](#setup)) creates two layers of topics: **raw**
+topics from `siem_producer.py`, and **parsed sub-topics** that the
+`demo/*_streaming_app.py` apps route each raw event into by `(type,
+subtype)`, one Avro schema per sub-topic (see `demo/schemas/*.avsc`). This is
+what the agent actually has something to say about — ask it to list topics
+or consume from any of these.
+
+### Raw topics (one producer each, `--no-schema` where noted)
+
+| Topic | Description |
+| --- | --- |
+| `siem_poc_fortigate_logs` | Raw FortiGate firewall/UTM log lines (`--no-schema`, plain text) |
+| `siem_poc_paloalto_logs` | Raw Palo Alto (PAN-OS) log lines (`--no-schema`, plain text) |
+| `siem_poc_dns_logs` | DNS query/response events, Avro, keyed by `src_ip` |
+| `siem_poc_windows_eventlog_logs` | Windows Event Log entries, Avro, keyed by `Computer` |
+
+### Parsed sub-topics (routed by `fortigate_streaming_app.py` / `paloalto_streaming_app.py` / `dns_streaming_app.py`)
+
+Each FortiGate/Palo Alto raw event is parsed and routed to
+`<raw-topic>-<type>-<subtype>` based on its log type; DNS events are
+windowed into 5-minute aggregates. (`windows_streaming_app.py` also exists in
+`demo/` with its own set of `windows_*` schemas, but isn't one of the apps
+`siem-datagen` starts by default — see `datagen/entrypoint.sh` to add it.)
+
+| Topic | Description |
+| --- | --- |
+| `siem_poc_fortigate_logs-traffic-forward` | Forwarded (allowed/routed) traffic sessions |
+| `siem_poc_fortigate_logs-traffic-local` | Traffic destined to the FortiGate device itself |
+| `siem_poc_fortigate_logs-utm-webfilter` | Web-filtering verdicts (category/action per URL) |
+| `siem_poc_fortigate_logs-utm-virus` | Antivirus detections |
+| `siem_poc_fortigate_logs-utm-dns` | DNS filtering/inspection events |
+| `siem_poc_fortigate_logs-utm-ips` | Intrusion-prevention (IPS) detections |
+| `siem_poc_fortigate_logs-event-system` | Device/system events (boot, config, HA, etc.) |
+| `siem_poc_fortigate_logs-event-vpn` | VPN tunnel up/down and auth events |
+| `siem_poc_fortigate_logs-event-user` | User authentication events on the device |
+| `siem_poc_paloalto_logs-traffic-start` | Session-start traffic records |
+| `siem_poc_paloalto_logs-traffic-end` | Session-end traffic records (with byte/packet counters) |
+| `siem_poc_paloalto_logs-traffic-deny` | Denied/blocked traffic |
+| `siem_poc_paloalto_logs-threat-virus` | Antivirus detections |
+| `siem_poc_paloalto_logs-threat-spyware` | Anti-spyware/C2 detections |
+| `siem_poc_paloalto_logs-threat-vulnerability` | Vulnerability/exploit-protection detections |
+| `siem_poc_paloalto_logs-threat-url` | URL-filtering verdicts |
+| `siem_poc_paloalto_logs-system-general` | Device/system log events |
+| `siem_poc_paloalto_logs-auth-auth` | Authentication events (GlobalProtect, admin, etc.) |
+| `siem_poc_paloalto_logs-globalprotect-globalprotect` | GlobalProtect VPN connect/disconnect events |
+| `siem_poc_dns_logs-aggregate` | DNS queries aggregated per 5-minute tumbling window (see `--window-seconds`) |
+
+---
+
 ## AWS / IAM Setup for Bedrock (Options B/C only)
 
 `ai-webui`/`ai-cli` call AWS Bedrock's `converse_stream` API directly via
@@ -208,7 +259,8 @@ Bring up the main stack plus the AI demo services (from the repo root):
 docker compose -f docker-compose.yml -f demo/AI-demo/docker-compose.ai-demo.yml up -d
 ```
 
-(Add any other services from the main stack you want, e.g. `control-center`.)
+Wait 30-60 seconds for services to start. Access Control Center at
+http://localhost:9021/home
 
 `siem-datagen` (see `datagen/` at the repo root) runs the producers +
 streaming apps for you — it waits for `broker`/`schema-registry` to report
