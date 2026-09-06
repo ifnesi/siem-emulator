@@ -38,7 +38,7 @@ GROUP BY window_start, window_end, channel;
 --   FROM exec_summary_hourly
 --   GROUP BY window_start ORDER BY window_start DESC LIMIT 1;
 --
---   -- At-risk rate (needs alerts.sql + silver.sql running):
+--   -- At-risk rate (needs anomalies.sql + silver.sql running):
 --   SELECT
 --     (SELECT COUNT(*) FROM alerts_at_risk) AS at_risk,
 --     (SELECT COUNT(*) FROM silver_order_fulfillment) AS total;

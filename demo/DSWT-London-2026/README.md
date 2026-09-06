@@ -154,7 +154,8 @@ Terraform writes everything the demo needs (all git‑ignored):
 
 - `kafka/cc-kafka.properties` + `kafka/cc-sr.properties` at the repo root, and
 - **`demo/DSWT-London-2026/.env`** — the datagen CC connection plus the Claude MCP
-  endpoint + token (`DSWT_CC_MCP_URL`, `DSWT_CC_MCP_AUTH`). No copy‑paste of outputs.
+  **endpoint** (`DSWT_CC_MCP_URL`). The MCP **token** (`DSWT_CC_MCP_AUTH`) is *not*
+  written by Terraform — you set it yourself from a Global API key (see step 3).
 
 `terraform output flink_compute_pool_id` gives the pool id for the Flink SQL step.
 

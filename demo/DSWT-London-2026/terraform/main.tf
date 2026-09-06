@@ -297,7 +297,7 @@ resource "local_file" "cc_sr_properties" {
   EOT
 }
 
-# ── Render the demo .env directly (docker compose + Claude MCP token) ────────
+# ── Render the demo .env directly (docker compose + Claude MCP endpoint) ─────
 resource "local_file" "dswt_env" {
   count           = var.write_env_file ? 1 : 0
   filename        = "${path.module}/../.env"

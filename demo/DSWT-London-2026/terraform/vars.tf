@@ -72,8 +72,10 @@ variable "write_properties_files" {
   default = true
 }
 
-# Render demo/DSWT-London-2026/.env directly from the outputs (docker compose +
-# the DSWT_CC_MCP_AUTH token for Claude) so there is no manual copy step.
+# Render demo/DSWT-London-2026/.env directly from the outputs (datagen CC
+# connection + the Claude MCP endpoint DSWT_CC_MCP_URL) so there is no manual
+# copy step. The DSWT_CC_MCP_AUTH token is NOT written here — the operator sets
+# it from a Global API key (see the README).
 variable "write_env_file" {
   type    = bool
   default = true
