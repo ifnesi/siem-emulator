@@ -166,7 +166,7 @@ Terraform writes everything the demo needs (all git‑ignored):
 
 ```bash
 cd .. # Go back to demo/DSWT-London-2026
-docker compose up --build      # reads the Terraform-generated .env
+docker compose up --build -d     # reads the Terraform-generated .env
 ```
 
 It **bulk-loads the dimensions first** (1000 customers + 100 products), then
@@ -206,7 +206,7 @@ Claude Code expands `${VAR}` in both `url` and `headers`. Source `.env` (URL) an
 export the auth, then launch from the repo root:
 
 ```bash
-set -a; source demo/DSWT-London-2026/.env; set +a       # sets DSWT_CC_MCP_URL
+set -a; source .env; set +a       # sets DSWT_CC_MCP_URL
 export DSWT_CC_MCP_AUTH="$(printf '%s:%s' <GLOBAL_KEY> <GLOBAL_SECRET> | base64)"
 claude
 ```
@@ -250,18 +250,55 @@ Claude identifies `order_id` and `customer_id`/`product_id`, draws the ERD, and
 > stream itself never says whether it was late). Also suggest an at‑risk detector for
 > declined payments and late deliveries."*
 
-Apply Claude's SQL on the Flink pool (pre‑tested fallbacks live in `flink/`):
+There are two ways to apply the data products — pick one.
+
+#### Option A — paste Claude's SQL in the console
+Pre‑tested fallbacks live in `flink/*.sql`:
 
 ```bash
-# In the Confluent Cloud console → Flink → your pool, set the context first:
+# Confluent Cloud console → Flink → your pool, set the context first:
 #   USE CATALOG `<env display name>`;  USE `<cluster display name>`;
 # Then run the files in order: bronze.sql → silver.sql → anomalies.sql
 ```
-
 Run each statement **separately** — every `CREATE TABLE` first, then each
-`INSERT INTO` (which starts a *continuous* streaming job that never "finishes",
-so it won't block the next one only if submitted as its own statement). Or use
-the CLI (`confluent flink shell --compute-pool <id> --environment <id>`).
+`INSERT INTO` (each is a *continuous* streaming job that never "finishes").
+
+#### Option B — Terraform, one statement at a time (`terraform-flink/`)
+Each data product is a single **CTAS** (`CREATE TABLE … AS SELECT`) managed as a
+`confluent_flink_statement`. This module is **separate** from the infra module,
+so it never runs during `terraform apply` of the infra — you apply each product
+on its own with `-target`, in dependency order:
+
+```bash
+cd demo/DSWT-London-2026/terraform-flink
+terraform init          # reads the infra module's state for ids/keys
+
+# bronze (any order) → silver → alerts. exec_summary is independent.
+terraform apply -target=confluent_flink_statement.bronze_orders
+terraform apply -target=confluent_flink_statement.bronze_payments
+terraform apply -target=confluent_flink_statement.bronze_shipments
+terraform apply -target=confluent_flink_statement.bronze_delivery_current
+terraform apply -target=confluent_flink_statement.silver
+terraform apply -target=confluent_flink_statement.alerts
+terraform apply -target=confluent_flink_statement.exec_summary
+```
+
+Tear them down one by one (reverse order — dependents first):
+
+```bash
+terraform destroy -target=confluent_flink_statement.exec_summary
+terraform destroy -target=confluent_flink_statement.alerts
+terraform destroy -target=confluent_flink_statement.silver
+terraform destroy -target=confluent_flink_statement.bronze_delivery_current
+terraform destroy -target=confluent_flink_statement.bronze_shipments
+terraform destroy -target=confluent_flink_statement.bronze_payments
+terraform destroy -target=confluent_flink_statement.bronze_orders
+# (or `terraform destroy` to drop all the statements at once)
+```
+
+Requires the infra module to have been applied first (its outputs feed this
+module via `terraform_remote_state`). Each `apply` starts one continuous Flink
+job that creates its backing topic; each `destroy` stops that job.
 
 **Close the loop** back in Claude:
 > *"Using cc-managed-mcp, consume a few messages from `silver_order_fulfillment`
@@ -344,7 +381,11 @@ demo/DSWT-London-2026/
 │   └── entrypoint.sh         # bulk-loads dims, runs the 5 fact streams
 ├── terraform/                # env · cluster · Flink pool · topics · schemas · RTCE · RBAC · keys
 │   ├── providers.tf  vars.tf  main.tf  outputs.tf  terraform.tfvars.example
-└── flink/                    # suggested + pre-tested Flink SQL
+├── terraform-flink/          # data products as CTAS confluent_flink_statement(s),
+│   ├── providers.tf  main.tf  #   applied one-by-one via -target (separate state)
+│   └── sql/                   #   bronze_*.sql · silver_order_fulfillment.sql ·
+│                              #   alerts_at_risk.sql · exec_summary_hourly.sql
+└── flink/                    # the same logic as multi-statement SQL for console paste
     ├── bronze.sql  silver.sql  anomalies.sql  exec_summary.sql
 ```
 

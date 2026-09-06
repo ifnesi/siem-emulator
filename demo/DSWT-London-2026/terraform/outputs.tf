@@ -26,6 +26,23 @@ output "flink_compute_pool_id" {
   value       = confluent_flink_compute_pool.flink_compute_pool.id
 }
 
+# Consumed by the terraform-flink/ module (via terraform_remote_state) to run
+# the Flink statements one-by-one.
+output "organization_id" {
+  description = "Confluent Cloud organization id."
+  value       = data.confluent_organization.cc_org.id
+}
+
+output "app_manager_id" {
+  description = "Service account used as the Flink statement principal."
+  value       = confluent_service_account.app_manager.id
+}
+
+output "flink_rest_endpoint" {
+  description = "Regional Flink REST endpoint for statement submission."
+  value       = data.confluent_flink_region.flink_region.rest_endpoint
+}
+
 # --------------------------------------------------------
 # Datagen credentials (clients + sr) — feed docker/.env
 # --------------------------------------------------------
