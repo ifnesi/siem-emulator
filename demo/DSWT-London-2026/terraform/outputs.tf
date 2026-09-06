@@ -66,10 +66,14 @@ output "flink_api_secret" {
 }
 
 # --------------------------------------------------------
-# Managed MCP auth for Claude Code (.mcp.json cc-managed-mcp)
+# Managed MCP (regional) for Claude Code (.mcp.json cc-managed-mcp)
 # --------------------------------------------------------
-output "mcp_basic_auth_base64" {
-  description = "Value for DSWT_CC_MCP_AUTH (Authorization: Basic ...)."
-  value       = base64encode("${confluent_api_key.mcp_cloud_key.id}:${confluent_api_key.mcp_cloud_key.secret}")
-  sensitive   = true
+output "mcp_url" {
+  description = "Regional, cluster-scoped MCP endpoint (.env DSWT_CC_MCP_URL)."
+  value       = local.mcp_url
+}
+
+output "mcp_reader_service_account" {
+  description = "Create a GLOBAL API key for this SA, base64 it, and export as DSWT_CC_MCP_AUTH."
+  value       = confluent_service_account.mcp_reader.id
 }

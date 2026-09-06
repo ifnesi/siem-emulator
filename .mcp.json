@@ -6,7 +6,7 @@
     },
     "cc-managed-mcp": {
       "type": "http",
-      "url": "https://api.confluent.cloud/mcp/v1",
+      "url": "${DSWT_CC_MCP_URL}",
       "headers": {
         "Authorization": "Basic ${DSWT_CC_MCP_AUTH}"
       }

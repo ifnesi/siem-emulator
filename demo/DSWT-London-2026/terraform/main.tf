@@ -12,6 +12,20 @@
 
 data "confluent_organization" "cc_org" {}
 
+# Regional, cluster-scoped managed MCP endpoint that Claude Code connects to.
+# Format: https://mcp.<region>.<cloud>.confluent.cloud/mcp/v1/context-engine/
+#         organizations/<org>/environments/<env>/kafka-clusters/<lkc>
+locals {
+  mcp_url = format(
+    "https://mcp.%s.%s.confluent.cloud/mcp/v1/context-engine/organizations/%s/environments/%s/kafka-clusters/%s",
+    var.cc_cloud_region,
+    lower(var.cc_cloud_provider),
+    data.confluent_organization.cc_org.id,
+    confluent_environment.cc_demo_env.id,
+    confluent_kafka_cluster.cc_kafka_cluster.id,
+  )
+}
+
 # ── Environment + Stream Governance (Schema Registry) ───────────────────────
 resource "confluent_environment" "cc_demo_env" {
   display_name = "${var.cc_env_name}-${random_id.id.hex}"
@@ -137,6 +151,11 @@ resource "confluent_role_binding" "mcp_data_discovery" {
   crn_pattern = confluent_environment.cc_demo_env.resource_name
 }
 
+# NOTE: the managed MCP server authenticates with a GLOBAL API key that the
+# operator creates and supplies themselves (exported as DSWT_CC_MCP_AUTH), NOT a
+# key rendered by Terraform. Create that global key for this mcp_reader service
+# account (console/CLI) so it inherits the read-only RBAC above — see the README.
+
 # ── API keys ────────────────────────────────────────────────────────────────
 resource "confluent_api_key" "app_manager_kafka_cluster_key" {
   display_name = "app-manager-${var.cc_cluster_name}-key-${random_id.id.hex}"
@@ -229,25 +248,6 @@ resource "confluent_api_key" "flink_api_key" {
   }
 }
 
-# Cloud API key (no managed_resource) for the managed MCP server.
-resource "confluent_api_key" "mcp_cloud_key" {
-  display_name = "mcp-cloud-key-${random_id.id.hex}"
-  description  = "Cloud API Key for the managed MCP server (read-only reader SA)"
-  owner {
-    id          = confluent_service_account.mcp_reader.id
-    api_version = confluent_service_account.mcp_reader.api_version
-    kind        = confluent_service_account.mcp_reader.kind
-  }
-  depends_on = [
-    confluent_role_binding.mcp_read_topics,
-    confluent_role_binding.mcp_read_subjects,
-    confluent_role_binding.mcp_data_discovery,
-  ]
-  lifecycle {
-    prevent_destroy = false
-  }
-}
-
 # ── Raw topics (silver/alerts are created live by Flink SQL) ─────────────────
 resource "confluent_kafka_topic" "raw" {
   for_each = var.raw_topics
@@ -312,8 +312,12 @@ resource "local_file" "dswt_env" {
     CC_SR_URL=${data.confluent_schema_registry_cluster.cc_sr_cluster.rest_endpoint}
     CC_SR_KEY=${confluent_api_key.sr_cluster_key.id}
     CC_SR_SECRET=${confluent_api_key.sr_cluster_key.secret}
-    # Claude Code managed-MCP auth (Authorization: Basic ...); `source .env` before `claude`:
-    DSWT_CC_MCP_AUTH=${base64encode("${confluent_api_key.mcp_cloud_key.id}:${confluent_api_key.mcp_cloud_key.secret}")}
+    # Claude Code managed-MCP (regional, cluster-scoped) — `source .env` before `claude`.
+    # .mcp.json references $${DSWT_CC_MCP_URL} and $${DSWT_CC_MCP_AUTH}.
+    DSWT_CC_MCP_URL=${local.mcp_url}
+    # DSWT_CC_MCP_AUTH is NOT generated here — create a GLOBAL API key in Confluent
+    # Cloud (ideally for the mcp-reader service account) and set it yourself, e.g.:
+    #   export DSWT_CC_MCP_AUTH="$(printf '%s:%s' <GLOBAL_KEY> <GLOBAL_SECRET> | base64)"
     # Reference (not read by the container):
     # FLINK_COMPUTE_POOL=${confluent_flink_compute_pool.flink_compute_pool.id}
     # FLINK_API_KEY=${confluent_api_key.flink_api_key.id}

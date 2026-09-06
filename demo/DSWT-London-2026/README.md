@@ -153,8 +153,8 @@ terraform apply
 Terraform writes everything the demo needs (all git‑ignored):
 
 - `kafka/cc-kafka.properties` + `kafka/cc-sr.properties` at the repo root, and
-- **`demo/DSWT-London-2026/.env`** — ready for `docker compose` and the Claude MCP
-  token (`DSWT_CC_MCP_AUTH`). No copy‑paste of outputs.
+- **`demo/DSWT-London-2026/.env`** — the datagen CC connection plus the Claude MCP
+  endpoint + token (`DSWT_CC_MCP_URL`, `DSWT_CC_MCP_AUTH`). No copy‑paste of outputs.
 
 `terraform output flink_compute_pool_id` gives the pool id for the Flink SQL step.
 
@@ -176,16 +176,45 @@ flowing so the demo shows live data.
 
 ### 3. Point Claude Code at the managed MCP server
 
-The repo‑root `.mcp.json` already declares `cc-managed-mcp` with an
-`Authorization: Basic ${DSWT_CC_MCP_AUTH}` header. Load the token from the
-generated `.env` and launch Claude from the repo root:
+The `cc-managed-mcp` server is declared in the **repo‑root `.mcp.json`** (Claude
+Code reads project MCP config only there — not from `.claude/`). It's generic and
+resolves from two env vars:
+
+```jsonc
+"cc-managed-mcp": {
+  "type": "http",
+  "url": "${DSWT_CC_MCP_URL}",                        // regional, cluster-scoped endpoint
+  "headers": { "Authorization": "Basic ${DSWT_CC_MCP_AUTH}" }
+}
+```
+
+- **`DSWT_CC_MCP_URL`** — Terraform builds and writes this into `.env`. It's the
+  **regional, cluster-scoped** endpoint:
+  `https://mcp.<region>.<cloud>.confluent.cloud/mcp/v1/context-engine/organizations/<org>/environments/<env>/kafka-clusters/<lkc>`
+- **`DSWT_CC_MCP_AUTH`** — **you set this yourself** (Terraform does not generate
+  it). It's `base64(<key>:<secret>)` of a **Global API key** in Confluent Cloud.
+  Create one for the `mcp-reader` service account Terraform made
+  (`terraform output mcp_reader_service_account`) so it inherits the read‑only
+  RBAC:
+
+  ```bash
+  # Console: Cloud API keys → Add key → Global → owner = the mcp-reader SA
+  # then base64 it and export:
+  export DSWT_CC_MCP_AUTH="$(printf '%s:%s' <GLOBAL_KEY> <GLOBAL_SECRET> | base64)"
+  ```
+
+Claude Code expands `${VAR}` in both `url` and `headers`. Source `.env` (URL) and
+export the auth, then launch from the repo root:
 
 ```bash
-set -a; source demo/DSWT-London-2026/.env; set +a   # exports DSWT_CC_MCP_AUTH
+set -a; source demo/DSWT-London-2026/.env; set +a       # sets DSWT_CC_MCP_URL
+export DSWT_CC_MCP_AUTH="$(printf '%s:%s' <GLOBAL_KEY> <GLOBAL_SECRET> | base64)"
 claude
 ```
 
-Approve the `cc-managed-mcp` server on first run. Verify:
+Project MCP servers need approval on first run — approve `cc-managed-mcp` when
+prompted (or set `"enableAllProjectMcpServers": true` in `.claude/settings.json`
+to skip the prompt for rehearsals). Verify:
 > *"Using cc-managed-mcp, list the topics on the cluster."*
 
 You should see the seven `dswt_*` topics.
@@ -272,6 +301,27 @@ Optionally apply `flink/exec_summary.sql` first so the headline numbers are exac
 cd demo/DSWT-London-2026 && docker compose down
 cd terraform && terraform destroy
 ```
+
+(If `destroy` says "no changes" but resources still exist, run `terraform init`
+first — a config edit can require re-init before the state is readable.)
+
+## Re-provisioning (destroy → re-apply) and reconnecting Claude
+
+`terraform destroy` then `apply` creates a **new environment + cluster**, so the
+`<env>`/`<lkc>` in `DSWT_CC_MCP_URL` change (org/region/cloud stay the same).
+Terraform re-writes `.env` with the new URL, but:
+
+- **Claude does not auto-reconnect.** It expands `${DSWT_CC_MCP_URL}` at *launch*,
+  so a running session keeps the old endpoint even after `.env` changes. **Exit
+  Claude, re-source the new `.env`, and start `claude` again.**
+- **No re-approval needed** — `.mcp.json` text is unchanged (it's `${VAR}`), so the
+  project-server approval persists across re-applies.
+- **Global API key:** if you created it for the Terraform-managed `mcp-reader` SA,
+  `destroy` deletes that SA and invalidates the key — you'd make a new one. **To
+  avoid this every cycle, create the Global key for a *persistent* principal** (your
+  user, or a long-lived SA outside this Terraform); then only the URL changes.
+- **Datagen restart only** (`docker compose down && up`) does **not** change the
+  cluster/URL — Claude stays connected; nothing to do.
 
 ## Security notes
 
