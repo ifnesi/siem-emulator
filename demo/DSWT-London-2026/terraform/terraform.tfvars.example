@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and adjust. The Cloud API key/secret authenticate the
+# provider and are read from the environment (NOT this file):
+#   export CONFLUENT_CLOUD_API_KEY="XXXXX"
+#   export CONFLUENT_CLOUD_API_SECRET="XXXXX"
+
+cc_cloud_provider = "AWS"
+cc_cloud_region   = "eu-central-1"
+
+cc_env_name     = "env-dswt-london-2026"
+cc_cluster_name = "cc-dswt-ecom"
+cc_availability = "SINGLE_ZONE"
+stream_governance = "ESSENTIALS"
+flink_cfu       = 10
+
+# Set false to manage kafka/cc-*.properties yourself instead of letting
+# Terraform render them from the datagen (clients + sr) API keys.
+write_properties_files = true

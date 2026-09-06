@@ -1,0 +1,14 @@
+# Product categories for the DSWT e-commerce demo streams.
+# One value per line; blank lines and lines starting with # are ignored.
+Electronics
+Home & Kitchen
+Books
+Clothing
+Sports & Outdoors
+Toys & Games
+Beauty
+Grocery
+Automotive
+Office Supplies
+Garden
+Pet Supplies

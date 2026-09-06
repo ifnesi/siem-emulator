@@ -1,0 +1,34 @@
+{#- DSWT e-commerce demo — ORDER_ITEMS fact stream (bounded, FAN-OUT).
+    A cursor in a state pool stays on the current order_id until all its lines
+    (item_count) are emitted, then advances to the next order via the shared
+    "orders" counter. Produce with the EXACT number of items as `-n` (the
+    entrypoint computes sum of item_count over the orders) and `-k order_id`, so
+    it covers orders 0..NUM_ORDERS-1 fully and STOPS — never emitting an
+    order_id past the limit. product_id is seeded into [0, 99] (a produced
+    product); prices/qty use the SAME formulas as dswt_orders' item loop, so
+    line prices match the catalog and line totals sum to order_total. -#}
+{%- set _ = init_pool('oi', {'cursor': {'oid': 0, 'line': 0, 'max': 0}}) -%}
+{%- set cur_oid = pool('oi', 'cursor', 'oid') -%}
+{%- set cur_line = pool('oi', 'cursor', 'line') -%}
+{%- set cur_max = pool('oi', 'cursor', 'max') -%}
+{%- if cur_line >= cur_max -%}
+  {%- set cur_oid = counter("orders", 0, 1) -%}
+  {%- set cur_max = seeded_integer("ic-%d"|format(cur_oid), 2, 5) -%}
+  {%- set cur_line = 0 -%}
+{%- endif -%}
+{%- set line_no = cur_line + 1 -%}
+{%- set sku_num = seeded_integer("sku-%d-%d"|format(cur_oid, line_no), 0, 99) -%}
+{%- set unit_price = seeded_floating(sku_num, 5.0, 500.0, 2) -%}
+{%- set quantity = seeded_integer("qty-%d-%d"|format(cur_oid, line_no), 1, 4) -%}
+{%- set _ = update_pool('oi', 'cursor', 'oid', cur_oid) -%}
+{%- set _ = update_pool('oi', 'cursor', 'line', line_no) -%}
+{%- set _ = update_pool('oi', 'cursor', 'max', cur_max) -%}
+{
+  "order_id":    {{ "ORD-%08d"|format(cur_oid) | tojson }},
+  "line_number": {{ line_no }},
+  "product_id":  {{ "SKU-%05d"|format(sku_num) | tojson }},
+  "quantity":    {{ quantity }},
+  "unit_price":  {{ unit_price }},
+  "line_total":  {{ (unit_price * quantity) | round(2) }},
+  "currency":    "GBP"
+}

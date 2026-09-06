@@ -1,0 +1,33 @@
+{#- DSWT e-commerce demo — DELIVERY_STATUS event stream (bounded, FAN-OUT).
+    Models a stateless event-driven delivery microservice: it only reports
+    statuses as they happen. No actual_days, no is_late — lateness is computed
+    downstream in Flink (join dswt_shipments, compare DELIVERED event_ts against
+    shipped_ts + promised_days).
+
+    Emits a 4-step lifecycle per order (CREATED -> IN_TRANSIT -> OUT_FOR_DELIVERY
+    -> DELIVERED) via a cursor in a state pool. Produce with `-n <4*NUM_ORDERS>
+    -k order_id`, so it covers orders 0..NUM_ORDERS-1 (4 events each) and STOPS.
+    Timestamps are deterministic from order_id using the SAME shipped anchor as
+    dswt_shipments, offset by whole hours. ~1 in 6 orders arrive late. -#}
+{#- step starts at 4 (>= lifecycle length) so the first render advances to the
+    first real order (oid 0) instead of emitting a phantom order. -#}
+{%- set _ = init_pool('ds', {'cursor': {'oid': -1, 'step': 4}}) -%}
+{%- set cur_oid = pool('ds', 'cursor', 'oid') -%}
+{%- set cur_step = pool('ds', 'cursor', 'step') -%}
+{%- if cur_step >= 4 -%}
+  {%- set cur_oid = counter("orders", 0, 1) -%}
+  {%- set cur_step = 0 -%}
+{%- endif -%}
+{%- set shipped_ms = 1767225600000 + cur_oid * 300000 -%}
+{%- set promised = seeded_integer("pd-%d"|format(cur_oid), 2, 7) -%}
+{%- set late = seeded_choice("late-%d"|format(cur_oid), "0|0|0|0|0|1") -%}
+{%- set actual_days = promised + (seeded_integer("lx-%d"|format(cur_oid), 1, 6) if late == "1" else 0) -%}
+{%- set statuses = ["CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"] -%}
+{%- set offsets_h = [0, 24, actual_days * 24 - 6, actual_days * 24] -%}
+{%- set _ = update_pool('ds', 'cursor', 'oid', cur_oid) -%}
+{%- set _ = update_pool('ds', 'cursor', 'step', cur_step + 1) -%}
+{
+  "order_id": {{ "ORD-%08d"|format(cur_oid) | tojson }},
+  "status":   {{ statuses[cur_step] | tojson }},
+  "event_ts": {{ epoch_millis(shipped_ms + offsets_h[cur_step] * 3600000) }}
+}

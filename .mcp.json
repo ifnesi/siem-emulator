@@ -3,6 +3,13 @@
     "siem-confluent": {
       "type": "http",
       "url": "http://localhost:8080/mcp"
+    },
+    "cc-managed-mcp": {
+      "type": "http",
+      "url": "https://api.confluent.cloud/mcp/v1",
+      "headers": {
+        "Authorization": "Basic ${DSWT_CC_MCP_AUTH}"
+      }
     }
   }
 }

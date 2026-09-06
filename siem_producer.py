@@ -5,12 +5,14 @@ Produces data from templates to Kafka topics with automatic Avro schema inferenc
 """
 
 import sys
+import copy
 import json
 import time
 import uuid
 import exrex
 import jinja2
 import random
+import hashlib
 import logging
 import argparse
 import ipaddress
@@ -61,6 +63,13 @@ class TemplateRenderer:
                     f'{{"__logicaltype_timestamp-millis__": '
                     f"{int(time.time() * 1000) - random.randint(0, int(max_ago) * 1000)}}}"
                 ),
+                # Emit an explicit epoch-millis value as a timestamp-millis
+                # field. Unlike unix_time_stamp() this does no randomization, so
+                # templates can build deterministic, correlated timestamps (e.g.
+                # a delivery lifecycle derived from a shared order_id anchor).
+                "epoch_millis": lambda ms: (
+                    f'{{"__logicaltype_timestamp-millis__": {int(ms)}}}'
+                ),
                 # Plain UTC strftime — for raw-text templates (e.g. NGINX, syslog
                 # lines) that need an arbitrary formatted timestamp rather than the
                 # JSON-wrapped logical-type markers emitted by `now()`.
@@ -74,6 +83,13 @@ class TemplateRenderer:
                 "counter": self._counter,
                 "floating": self._floating,
                 "gaussian": self._gaussian,
+                # Seeded (deterministic) variants: same seed -> same value, so
+                # independent producer processes can derive identical fields
+                # from a shared key (e.g. order_id) and their topics join/
+                # reconcile without any shared memory. See templates/dswt_*.j2.
+                "seeded_integer": self._seeded_integer,
+                "seeded_floating": self._seeded_floating,
+                "seeded_choice": self._seeded_choice,
                 "regex": self._generate_from_regex,
                 "data": self._load_data(data_dir) if data_dir else dict(),
                 "init_pool": self._init_pool,
@@ -237,6 +253,38 @@ class TemplateRenderer:
             ),
             decimals,
         )
+
+    @staticmethod
+    def _seed_rng(seed: Any) -> random.Random:
+        """Return a random.Random seeded deterministically from `seed`.
+
+        Ints seed directly; anything else is stringified and hashed (md5) to a
+        stable integer, so `seeded_*("42-qty", ...)` and `seeded_*(42, ...)`
+        give independent-but-reproducible streams from the same base key.
+        """
+        if isinstance(seed, bool):  # bool is an int subclass — treat as text
+            seed = str(seed)
+        if isinstance(seed, int):
+            return random.Random(seed)
+        digest = hashlib.md5(str(seed).encode("utf-8")).hexdigest()
+        return random.Random(int(digest, 16))
+
+    def _seeded_integer(self, seed: Any, min_val: int, max_val: int) -> int:
+        """Deterministic `integer(min, max)` keyed by `seed`."""
+        return self._seed_rng(seed).randint(min_val, max_val)
+
+    def _seeded_floating(
+        self, seed: Any, min_val: float, max_val: float, decimals: int = 2
+    ) -> float:
+        """Deterministic `floating(min, max, decimals)` keyed by `seed`."""
+        return round(self._seed_rng(seed).uniform(min_val, max_val), decimals)
+
+    def _seeded_choice(self, seed: Any, options: Any) -> Any:
+        """Deterministic `randoms(options)` keyed by `seed`. Accepts a
+        pipe-separated string (`"a|b|c"`) or any sequence."""
+        if isinstance(options, str):
+            options = [o.strip() for o in options.split("|") if o.strip()]
+        return self._seed_rng(seed).choice(options)
 
     def _random_ip(
         self,
@@ -506,8 +554,13 @@ def sample_for_schema(
     `counter("seq", 1, 1)` still starts at 1 in production.
     """
     counters_snapshot = dict(renderer.counters)
+    # State pools are advanced by stateful templates too (e.g. a fan-out cursor
+    # in dswt_order_items). Deep-copy so sampling doesn't leak cursor/baseline
+    # state into the first real records.
+    pools_snapshot = copy.deepcopy(renderer.state_pools)
     samples = [renderer.render(template=template) for _ in range(num_samples)]
     renderer.counters = counters_snapshot
+    renderer.state_pools = pools_snapshot
     merged = dict(samples[0])
 
     # If a top-level field is an empty list in the first sample but populated

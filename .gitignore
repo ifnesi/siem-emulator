@@ -39,3 +39,10 @@ state/
 
 # Secrets
 demo/AI-demo/.env
+demo/DSWT-London-2026/.env
+
+# Terraform
+.terraform*
+terraform.*
+!terraform.tfvars.example
+tf_aws_data.json

@@ -1,0 +1,26 @@
+# DSWT London 2026 — run the e-commerce datagen against Confluent Cloud.
+#
+#   cd demo/DSWT-London-2026            # after `terraform apply` generated .env
+#   docker compose up --build
+#
+# The .env (CC connection) is rendered by demo/DSWT-London-2026/terraform.
+# Build context is the repo root (two levels up) so the image can COPY
+# siem_producer.py + templates/.
+services:
+  dswt-datagen:
+    build:
+      context: ../..
+      dockerfile: demo/DSWT-London-2026/docker/Dockerfile
+    image: dswt-datagen:london-2026
+    container_name: dswt-datagen
+    env_file:
+      - .env
+    environment:
+      # Real-time flow sizing (all optional). NUM_ORDERS defaults to
+      # ORDERS_PER_SEC * RUN_HOURS * 3600 when left empty.
+      ORDERS_PER_SEC: ${ORDERS_PER_SEC:-5}
+      RUN_HOURS: ${RUN_HOURS:-24}
+      NUM_ORDERS: ${NUM_ORDERS:-}
+    # Bounded load: produce the fixed keyspace once, then exit. Don't restart
+    # (that would re-load the same data).
+    restart: "no"

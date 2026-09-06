@@ -1,0 +1,17 @@
+{#- DSWT e-commerce demo — PRODUCTS dimension (bounded keyspace).
+    Produce with `-n 100 -k product_id`: product_id runs SKU-00000..SKU-00099.
+    This fixed set of 100 is the whole product keyspace; order lines only ever
+    reference an id in [0, 99], so every line's product exists. unit_price is
+    seeded_floating(sku, 5.0, 500.0, 2); dswt_order_items.j2 recomputes the SAME
+    formula for its chosen SKU so the line price matches this catalog price. -#}
+{%- set sku = counter("sku", 0, 1) -%}
+{%- set product_id = "SKU-%05d"|format(sku) -%}
+{%- set category = seeded_choice(sku, data.product_categories) -%}
+{
+  "product_id":   {{ product_id | tojson }},
+  "product_name": {{ (category ~ " Item #" ~ sku|string) | tojson }},
+  "category":     {{ category | tojson }},
+  "unit_price":   {{ seeded_floating(sku, 5.0, 500.0, 2) }},
+  "weight_kg":    {{ seeded_floating("wt-%d"|format(sku), 0.1, 15.0, 2) }},
+  "in_stock":     {{ seeded_integer("stk-%d"|format(sku), 0, 5000) }}
+}

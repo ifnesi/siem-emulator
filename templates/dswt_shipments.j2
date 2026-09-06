@@ -1,0 +1,17 @@
+{#- DSWT e-commerce demo — SHIPMENTS fact stream (bounded, one per order).
+    Produce with `-n <NUM_ORDERS> -k order_id`: walks the same order_id sequence
+    0..NUM_ORDERS-1 and stops. The "promise": promised_days (SLA) + ship time;
+    whether it arrived on time is derived in Flink by joining dswt_delivery_status.
+    shipped_ts is deterministic from order_id (2026-01-01 anchor + oid*5min), so
+    dswt_delivery_status reproduces the SAME anchor and the timestamps line up
+    for the duration math. -#}
+{%- set oid = counter("orders", 0, 1) -%}
+{%- set order_id = "ORD-%08d"|format(oid) -%}
+{%- set shipped_ms = 1767225600000 + oid * 300000 -%}
+{
+  "order_id":        {{ order_id | tojson }},
+  "carrier":         {{ seeded_choice("car-%d"|format(oid), data.carriers) | tojson }},
+  "tracking_number": {{ regex("[A-Z]{2}\\d{9}[A-Z]{2}") | tojson }},
+  "promised_days":   {{ seeded_integer("pd-%d"|format(oid), 2, 7) }},
+  "shipped_ts":      {{ epoch_millis(shipped_ms) }}
+}

@@ -1,0 +1,37 @@
+{#- DSWT e-commerce demo — ORDERS fact stream (bounded keyspace).
+    Produce with `-n <NUM_ORDERS> -k order_id`: order_id runs ORD-00000000..
+    up to the limit, then STOPS. Every fact producer (orders / order_items /
+    shipments / delivery_status / payments) walks the SAME order_id sequence and
+    stops at the SAME limit, so no child ever references an order outside the
+    set. customer_id is seeded into [0, 999] (the 1000 produced customers) and
+    the line SKUs into [0, 99] (the 100 produced products) — always valid refs.
+
+    SHARED ITEM MODEL (identical in dswt_orders / dswt_order_items /
+    dswt_payments so the numbers reconcile across topics):
+      item_count(oid)      = seeded_integer("ic-<oid>", 2, 5)
+      for line L in 1..item_count:
+        sku_num            = seeded_integer("sku-<oid>-<L>", 0, 99)
+        unit_price         = seeded_floating(sku_num, 5.0, 500.0, 2)   # == products
+        quantity           = seeded_integer("qty-<oid>-<L>", 1, 4)
+        line_total         = round(unit_price * quantity, 2)
+      order_total          = round(sum(line_total), 2)                 # == payment amount -#}
+{%- set oid = counter("orders", 0, 1) -%}
+{%- set order_id = "ORD-%08d"|format(oid) -%}
+{%- set cust_num = seeded_integer("cust-%d"|format(oid), 0, 999) -%}
+{%- set item_count = seeded_integer("ic-%d"|format(oid), 2, 5) -%}
+{%- set ns = namespace(total=0.0) -%}
+{%- for L in range(1, item_count + 1) -%}
+  {%- set sku_num = seeded_integer("sku-%d-%d"|format(oid, L), 0, 99) -%}
+  {%- set unit_price = seeded_floating(sku_num, 5.0, 500.0, 2) -%}
+  {%- set quantity = seeded_integer("qty-%d-%d"|format(oid, L), 1, 4) -%}
+  {%- set ns.total = ns.total + (unit_price * quantity) -%}
+{%- endfor -%}
+{
+  "order_id":    {{ order_id | tojson }},
+  "customer_id": {{ "CUST-%05d"|format(cust_num) | tojson }},
+  "channel":     {{ seeded_choice("chan-%d"|format(oid), data.channels) | tojson }},
+  "currency":    "GBP",
+  "order_total": {{ ns.total | round(2) }},
+  "status":      "PLACED",
+  "order_ts":    {{ now() }}
+}

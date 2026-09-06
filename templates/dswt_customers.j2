@@ -1,0 +1,20 @@
+{#- DSWT e-commerce demo — CUSTOMERS dimension (bounded keyspace).
+    Produce with `-n 1000 -k customer_id`: customer_id runs CUST-00000..CUST-00999.
+    This fixed set of 1000 is the whole customer keyspace; orders only ever
+    reference an id in [0, 999], so every order's customer exists. Attributes are
+    seeded by the numeric id (reproducible). -#}
+{%- set cid = counter("cust", 0, 1) -%}
+{%- set customer_id = "CUST-%05d"|format(cid) -%}
+{%- set first = seeded_choice(cid, data.first_names) -%}
+{%- set last = seeded_choice("last-%d"|format(cid), data.last_names) -%}
+{
+  "customer_id":     {{ customer_id | tojson }},
+  "first_name":      {{ first | tojson }},
+  "last_name":       {{ last | tojson }},
+  "email":           {{ (first ~ "." ~ last ~ cid|string ~ "@example.com") | lower | tojson }},
+  "segment":         {{ seeded_choice("seg-%d"|format(cid), data.customer_segments) | tojson }},
+  "loyalty_tier":    {{ seeded_choice("tier-%d"|format(cid), data.loyalty_tiers) | tojson }},
+  "country":         {{ seeded_choice("cty-%d"|format(cid), data.countries) | tojson }},
+  "lifetime_orders": {{ seeded_integer("lo-%d"|format(cid), 1, 500) }},
+  "signup_ts":       {{ unix_time_stamp(63072000) }}
+}

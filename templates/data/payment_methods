@@ -1,0 +1,9 @@
+# Payment methods for the DSWT e-commerce demo (dswt_payments).
+credit_card
+credit_card
+debit_card
+paypal
+apple_pay
+google_pay
+bank_transfer
+gift_card
