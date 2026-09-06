@@ -255,13 +255,15 @@ Claude identifies `order_id` and `customer_id`/`product_id`, draws the ERD, and
 Apply Claude's SQL on the Flink pool (pre‑tested fallbacks live in `flink/`):
 
 ```bash
-# In the Confluent Cloud console → Flink → your pool, set the context then paste:
+# In the Confluent Cloud console → Flink → your pool, set the context first:
 #   USE CATALOG `<env display name>`;  USE `<cluster display name>`;
-# Apply in order:
-flink/bronze.sql   →   flink/silver.sql   →   flink/anomalies.sql
+# Then run the files in order: bronze.sql → silver.sql → anomalies.sql
 ```
 
-Or with the CLI (`confluent flink shell --compute-pool <id> --environment <id>`).
+Run each statement **separately** — every `CREATE TABLE` first, then each
+`INSERT INTO` (which starts a *continuous* streaming job that never "finishes",
+so it won't block the next one only if submitted as its own statement). Or use
+the CLI (`confluent flink shell --compute-pool <id> --environment <id>`).
 
 **Close the loop** back in Claude:
 > *"Using cc-managed-mcp, consume a few messages from `silver_order_fulfillment`

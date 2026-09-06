@@ -16,7 +16,7 @@ CREATE TABLE alerts_at_risk (
   amount_matches  BOOLEAN,
   order_total     DOUBLE,
   PRIMARY KEY (order_id) NOT ENFORCED
-) DISTRIBUTED BY HASH(order_id) INTO 6 BUCKETS;
+) DISTRIBUTED BY (order_id) INTO 6 BUCKETS;
 
 INSERT INTO alerts_at_risk
 SELECT

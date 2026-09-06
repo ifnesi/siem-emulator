@@ -28,7 +28,7 @@ CREATE TABLE silver_order_fulfillment (
   actual_days       INT,       -- derived: DELIVERED event_ts - shipped_ts
   is_late           BOOLEAN,   -- derived: actual_days > promised_days
   PRIMARY KEY (order_id) NOT ENFORCED
-) DISTRIBUTED BY HASH(order_id) INTO 6 BUCKETS;
+) DISTRIBUTED BY (order_id) INTO 6 BUCKETS;
 
 INSERT INTO silver_order_fulfillment
 SELECT

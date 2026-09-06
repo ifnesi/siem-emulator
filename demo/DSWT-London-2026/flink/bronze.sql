@@ -21,7 +21,7 @@ CREATE TABLE bronze_orders (
   status       STRING,
   order_ts     STRING,
   PRIMARY KEY (order_id) NOT ENFORCED
-) DISTRIBUTED BY HASH(order_id) INTO 6 BUCKETS;
+) DISTRIBUTED BY (order_id) INTO 6 BUCKETS;
 
 INSERT INTO bronze_orders
 SELECT
@@ -42,7 +42,7 @@ CREATE TABLE bronze_payments (
   currency        STRING,
   status          STRING,
   PRIMARY KEY (order_id) NOT ENFORCED
-) DISTRIBUTED BY HASH(order_id) INTO 6 BUCKETS;
+) DISTRIBUTED BY (order_id) INTO 6 BUCKETS;
 
 INSERT INTO bronze_payments
 SELECT order_id, payment_method, amount, currency, UPPER(status) AS status
@@ -56,10 +56,11 @@ CREATE TABLE bronze_shipments (
   promised_days   INT,
   shipped_ts      TIMESTAMP(3),
   PRIMARY KEY (order_id) NOT ENFORCED
-) DISTRIBUTED BY HASH(order_id) INTO 6 BUCKETS;
+) DISTRIBUTED BY (order_id) INTO 6 BUCKETS;
 
 INSERT INTO bronze_shipments
-SELECT order_id, carrier, tracking_number, promised_days, shipped_ts
+-- promised_days is Avro long (the emulator infers ints as long) → CAST to INT.
+SELECT order_id, carrier, tracking_number, CAST(promised_days AS INT), shipped_ts
 FROM dswt_shipments;
 
 -- Delivery status: the raw event stream carries CREATED/IN_TRANSIT/
@@ -72,7 +73,7 @@ CREATE TABLE bronze_delivery_current (
   status    STRING,
   event_ts  TIMESTAMP(3),
   PRIMARY KEY (order_id) NOT ENFORCED
-) DISTRIBUTED BY HASH(order_id) INTO 6 BUCKETS;
+) DISTRIBUTED BY (order_id) INTO 6 BUCKETS;
 
 INSERT INTO bronze_delivery_current
 SELECT order_id, status, event_ts

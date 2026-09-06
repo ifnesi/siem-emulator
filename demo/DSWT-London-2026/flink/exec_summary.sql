@@ -16,7 +16,7 @@ CREATE TABLE exec_summary_hourly (
   revenue         DOUBLE,
   avg_order_value DOUBLE,
   PRIMARY KEY (window_start, window_end, channel) NOT ENFORCED
-) DISTRIBUTED BY HASH(channel) INTO 3 BUCKETS;
+) DISTRIBUTED BY (channel) INTO 3 BUCKETS;
 
 INSERT INTO exec_summary_hourly
 SELECT
@@ -27,7 +27,7 @@ SELECT
   SUM(order_total)      AS revenue,
   AVG(order_total)      AS avg_order_value
 FROM TABLE(
-  TUMBLE(TABLE dswt_orders, DESCRIPTOR(`$rowtime`), INTERVAL '1' HOUR)
+  TUMBLE(TABLE dswt_orders, DESCRIPTOR($rowtime), INTERVAL '1' HOUR)
 )
 GROUP BY window_start, window_end, channel;
 
