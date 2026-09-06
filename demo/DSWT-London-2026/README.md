@@ -138,6 +138,49 @@ erDiagram
   SHIPMENTS ||--o{ DELIVERY_STATUS : "tracked by"
 ```
 
+### The Flink data products (what Terraform builds on top)
+
+The seven raw streams above are refined into a medallion of Flink tables — each a
+`CREATE TABLE … AS SELECT` in `terraform/sql/`, applied by `terraform apply`. Raw
+→ **bronze** (clean/dedupe) → **silver** (enriched join + computed lateness and
+the revenue-leak flag) → **report** (the at-risk detector and the exec summary):
+
+```mermaid
+flowchart LR
+  subgraph Raw["Raw topics (datagen → Kafka)"]
+    RO["dswt_orders"]
+    RP["dswt_payments"]
+    RS["dswt_shipments"]
+    RD["dswt_delivery_status"]
+    RC["dswt_customers"]
+  end
+  subgraph Bronze["Bronze — cleaned / deduped"]
+    BO["medal_bronze_orders"]
+    BP["medal_bronze_payments"]
+    BS["medal_bronze_shipments"]
+    BD["medal_bronze_delivery_current\n(current status per order)"]
+  end
+  subgraph Silver["Silver — enriched join"]
+    SF["medal_silver_order_fulfillment\n+ is_late (computed)\n+ delivered_despite_decline"]
+  end
+  subgraph Report["Report — data products"]
+    RA["report_alerts_at_risk"]
+    RE["report_exec_summary_hourly\n(hourly TUMBLE by channel)"]
+  end
+
+  RO --> BO --> SF
+  RP --> BP --> SF
+  RS --> BS --> SF
+  RD --> BD --> SF
+  RC --> SF
+  SF --> RA
+  RO -. "reads raw rowtime\n(no bronze dep)" .-> RE
+```
+
+`report_exec_summary_hourly` reads the raw `dswt_orders` directly (Kafka
+`$rowtime` as event time), so it has no bronze dependency; everything else follows
+the `depends_on` chain bronze → silver → alerts.
+
 ---
 
 ## Prerequisites
