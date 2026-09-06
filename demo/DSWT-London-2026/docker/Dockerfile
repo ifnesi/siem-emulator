@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY siem_producer.py .
 COPY templates/ ./templates/
+# Avro schemas the producers pin via --schema (must match what Terraform
+# registers + RTCE-enables). schemas/dswt_*.avsc.
+COPY schemas/ ./schemas/
 
 COPY demo/DSWT-London-2026/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

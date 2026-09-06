@@ -1,13 +1,11 @@
 # =============================================================================
 # DSWT London 2026 infrastructure on Confluent Cloud.
-#   organization + environment + Kafka cluster + Schema Registry
-#   + Flink compute pool + 7 raw topics + service accounts / RBAC / API keys.
+#   organization + environment + Kafka cluster + Schema Registry + Flink pool
+#   + 7 raw topics + Avro schemas + RTCE (context-engine) + SAs / RBAC / keys.
 #
 # Deliberately NOT here (this is the live demo part):
 #   * confluent_flink_statement — the presenter applies Claude's suggested Flink
 #     SQL (bronze/silver/anomalies/exec_summary) on the pool; see ../flink/.
-#   * confluent_schema — the datagen auto-registers Avro schemas on first
-#     produce (auto.register.schemas=true), so no external .avsc wiring here.
 # =============================================================================
 
 data "confluent_organization" "cc_org" {}
@@ -267,6 +265,55 @@ resource "confluent_kafka_topic" "raw" {
     "min.insync.replicas" = "2"
     "retention.ms"        = each.value.retention_ms
   }
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+# ── Avro schemas for each raw topic (registered AFTER the topics) ────────────
+# Generated from the templates with `siem_producer.py --inferred-schema`
+# (schemas/dswt_*.avsc). The datagen pins the SAME files via --schema so what it
+# produces matches exactly. Registering here (not just relying on the producer's
+# auto-register) is what lets RTCE be enabled at apply time.
+resource "confluent_schema" "raw" {
+  for_each = var.raw_topics
+
+  schema_registry_cluster {
+    id = data.confluent_schema_registry_cluster.cc_sr_cluster.id
+  }
+  rest_endpoint = data.confluent_schema_registry_cluster.cc_sr_cluster.rest_endpoint
+  subject_name  = "${each.key}-value"
+  format        = "AVRO"
+  schema        = file("${path.module}/../../../schemas/${each.key}.avsc")
+  credentials {
+    key    = confluent_api_key.sr_cluster_key.id
+    secret = confluent_api_key.sr_cluster_key.secret
+  }
+  depends_on = [confluent_kafka_topic.raw]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+# ── Real-Time Context Engine (RTCE) per topic ────────────────────────────────
+# Makes each topic available to the managed MCP context-engine endpoint. Requires
+# a registered schema (above) and an RTCE-supported cluster/region.
+resource "confluent_rtce_topic" "raw" {
+  for_each = var.raw_topics
+
+  cloud       = var.cc_cloud_provider
+  region      = var.cc_cloud_region
+  topic_name  = each.key
+  description = "DSWT London 2026 — ${each.key}"
+
+  environment {
+    id = confluent_environment.cc_demo_env.id
+  }
+  kafka_cluster {
+    id = confluent_kafka_cluster.cc_kafka_cluster.id
+  }
+
+  depends_on = [confluent_schema.raw]
   lifecycle {
     prevent_destroy = false
   }

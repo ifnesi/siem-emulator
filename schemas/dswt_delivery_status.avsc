@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "DswtDeliveryStatusRecord",
+  "namespace": "io.confluent.dswt",
+  "fields": [
+    {
+      "name": "order_id",
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "type": "string"
+    },
+    {
+      "name": "event_ts",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    }
+  ]
+}

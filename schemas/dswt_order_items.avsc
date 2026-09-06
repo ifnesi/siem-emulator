@@ -1,0 +1,35 @@
+{
+  "type": "record",
+  "name": "DswtOrderItemsRecord",
+  "namespace": "io.confluent.dswt",
+  "fields": [
+    {
+      "name": "order_id",
+      "type": "string"
+    },
+    {
+      "name": "line_number",
+      "type": "long"
+    },
+    {
+      "name": "product_id",
+      "type": "string"
+    },
+    {
+      "name": "quantity",
+      "type": "long"
+    },
+    {
+      "name": "unit_price",
+      "type": "double"
+    },
+    {
+      "name": "line_total",
+      "type": "double"
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    }
+  ]
+}

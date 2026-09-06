@@ -1,0 +1,31 @@
+{
+  "type": "record",
+  "name": "DswtProductsRecord",
+  "namespace": "io.confluent.dswt",
+  "fields": [
+    {
+      "name": "product_id",
+      "type": "string"
+    },
+    {
+      "name": "product_name",
+      "type": "string"
+    },
+    {
+      "name": "category",
+      "type": "string"
+    },
+    {
+      "name": "unit_price",
+      "type": "double"
+    },
+    {
+      "name": "weight_kg",
+      "type": "double"
+    },
+    {
+      "name": "in_stock",
+      "type": "long"
+    }
+  ]
+}

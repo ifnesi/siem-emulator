@@ -84,11 +84,13 @@ common=(--kafka-config "${KAFKA_CONFIG}" --registry-config "${REGISTRY_CONFIG}" 
 # ── Dimensions first: bulk-load fast (-f 0, big batches) BEFORE any facts ─────
 log "Bulk-loading ${NUM_CUSTOMERS} customers -> dswt_customers ..."
 python siem_producer.py dswt_customers -t dswt_customers \
-       -n "${NUM_CUSTOMERS}" -f 0 -b 1000 -p "${DIM_PARTITIONS}" -k customer_id "${common[@]}"
+       -n "${NUM_CUSTOMERS}" -f 0 -b 1000 -p "${DIM_PARTITIONS}" -k customer_id \
+       --schema schemas/dswt_customers.avsc "${common[@]}"
 
 log "Bulk-loading ${NUM_PRODUCTS} products -> dswt_products ..."
 python siem_producer.py dswt_products -t dswt_products \
-       -n "${NUM_PRODUCTS}" -f 0 -b 100 -p "${DIM_PARTITIONS}" -k product_id "${common[@]}"
+       -n "${NUM_PRODUCTS}" -f 0 -b 100 -p "${DIM_PARTITIONS}" -k product_id \
+       --schema schemas/dswt_products.avsc "${common[@]}"
 
 # ── Facts: rate-matched streams (-f 1, batch = records/sec) ──────────────────
 pids=()
@@ -100,7 +102,8 @@ start_fact() {
   log "Streaming ${template} -> ${topic} (-n ${nrecords}, ~${batch}/s)"
   python siem_producer.py "${template}" -t "${topic}" \
          -n "${nrecords}" -f 1 -b "${batch}" \
-         -p "${FACT_PARTITIONS}" -k order_id "${common[@]}" &
+         -p "${FACT_PARTITIONS}" -k order_id \
+         --schema "schemas/${template}.avsc" "${common[@]}" &
   pids+=("$!")
   sleep 1
 }

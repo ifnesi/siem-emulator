@@ -1,8 +1,9 @@
 terraform {
   required_providers {
     confluent = {
-      source  = "confluentinc/confluent"
-      version = "2.30.0"
+      source = "confluentinc/confluent"
+      # >= 2.75.0 for the confluent_rtce_topic resource (Real-Time Context Engine).
+      version = ">= 2.75.0"
     }
     random = {
       source  = "hashicorp/random"

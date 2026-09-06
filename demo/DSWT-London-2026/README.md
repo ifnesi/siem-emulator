@@ -36,16 +36,19 @@ flowchart LR
 ```
 
 - **Terraform** provisions the environment, cluster, Flink pool, the 7 raw
-  topics, service accounts, RBAC and API keys.
+  topics, their **Avro schemas**, **RTCE** (Real‑Time Context Engine) per topic,
+  service accounts, RBAC and API keys.
 - **Datagen (Docker)** pumps the seven related e‑commerce streams into Confluent
-  Cloud. Avro schemas auto‑register.
+  Cloud, pinning the same `schemas/dswt_*.avsc` Terraform registered (`--schema`).
 - **Claude Code** connects to the **managed MCP server** (read‑only) to explore,
   and **suggests** the Flink SQL. The presenter applies it on the Flink pool.
 
 The managed MCP server is read‑only by design (`list_kafka_topics`,
 `describe_kafka_topic`, `consume_kafka_messages`, `list_schema_subjects`,
 `read_schema_subject`) — so creating topics / running Flink is the presenter's
-job, driven by what Claude proposes.
+job, driven by what Claude proposes. **RTCE is what makes the topics visible to
+the context‑engine MCP endpoint**, which is why Terraform enables it per topic
+(each topic needs a registered schema first).
 
 ---
 
@@ -194,15 +197,10 @@ resolves from two env vars:
   `https://mcp.<region>.<cloud>.confluent.cloud/mcp/v1/context-engine/organizations/<org>/environments/<env>/kafka-clusters/<lkc>`
 - **`DSWT_CC_MCP_AUTH`** — **you set this yourself** (Terraform does not generate
   it). It's `base64(<key>:<secret>)` of a **Global API key** in Confluent Cloud.
-  Create one for the `mcp-reader` service account Terraform made
+  Create one in the console (Cloud API keys → Add key → **Global**) with owner =
+  the `mcp-reader` service account Terraform made
   (`terraform output mcp_reader_service_account`) so it inherits the read‑only
-  RBAC:
-
-  ```bash
-  # Console: Cloud API keys → Add key → Global → owner = the mcp-reader SA
-  # then base64 it and export:
-  export DSWT_CC_MCP_AUTH="$(printf '%s:%s' <GLOBAL_KEY> <GLOBAL_SECRET> | base64)"
-  ```
+  RBAC. You export it in the launch step below.
 
 Claude Code expands `${VAR}` in both `url` and `headers`. Source `.env` (URL) and
 export the auth, then launch from the repo root:
@@ -344,11 +342,12 @@ demo/DSWT-London-2026/
 ├── docker/
 │   ├── Dockerfile            # datagen image (build context = repo root)
 │   └── entrypoint.sh         # bulk-loads dims, runs the 5 fact streams
-├── terraform/                # env · cluster · Flink pool · topics · RBAC · keys
+├── terraform/                # env · cluster · Flink pool · topics · schemas · RTCE · RBAC · keys
 │   ├── providers.tf  vars.tf  main.tf  outputs.tf  terraform.tfvars.example
 └── flink/                    # suggested + pre-tested Flink SQL
     ├── bronze.sql  silver.sql  anomalies.sql  exec_summary.sql
 ```
 
-Datagen internals (templates, seeded helpers) live at the repo root:
-`templates/dswt_*.j2`, `templates/data/*`, `siem_producer.py`.
+Datagen internals live at the repo root: `templates/dswt_*.j2`,
+`templates/data/*`, `schemas/dswt_*.avsc` (registered by Terraform + pinned by
+the producer), `siem_producer.py`.

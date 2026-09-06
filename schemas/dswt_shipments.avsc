@@ -1,0 +1,30 @@
+{
+  "type": "record",
+  "name": "DswtShipmentsRecord",
+  "namespace": "io.confluent.dswt",
+  "fields": [
+    {
+      "name": "order_id",
+      "type": "string"
+    },
+    {
+      "name": "carrier",
+      "type": "string"
+    },
+    {
+      "name": "tracking_number",
+      "type": "string"
+    },
+    {
+      "name": "promised_days",
+      "type": "long"
+    },
+    {
+      "name": "shipped_ts",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    }
+  ]
+}
