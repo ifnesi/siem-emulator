@@ -78,16 +78,25 @@ They come from seeded, deterministic helpers in `siem_producer.py`
 pure function of `(order_id, line)`, so independent producer processes derive
 identical values from a shared key and the totals reconcile across topics — see
 the shared item model documented in `templates/dswt_orders.j2`. ~1 in 10 payments
-are `DECLINED`, which feeds the at‑risk detector.
+are `DECLINED`.
 
 **Delivery is modelled the event‑driven way.** `dswt_shipments` carries the
 promise (`promised_days`, `shipped_ts`); `dswt_delivery_status` is a *stateless*
-event stream that only reports statuses as they happen
-(`CREATED → IN_TRANSIT → OUT_FOR_DELIVERY → DELIVERED`, with a real `event_ts`).
-It never carries `actual_days` or `is_late` — **lateness is computed in Flink**
-(silver) by comparing the `DELIVERED` event time to `shipped_ts + promised_days`.
-~1 in 6 orders arrive late. Timestamps are deterministic from `order_id`, so the
-two independent producers agree and the delivery durations are real.
+event stream that only reports statuses as they happen. It never carries
+`actual_days` or `is_late` — **lateness is computed in Flink** (silver) from the
+`DELIVERED` event vs `shipped_ts + promised_days`; ~1 in 6 delivered orders are
+late. **Delivery is gated on the payment outcome:** `CAPTURED` orders run
+`CREATED → IN_TRANSIT → OUT_FOR_DELIVERY → DELIVERED`; `DECLINED` orders mostly
+`CANCELLED` (`… → PAYMENT_FLAGGED → ON_HOLD → CANCELLED`), but **~1 in 8 leak
+through to `DELIVERED`** — the shipped-despite-declined revenue leak the demo
+finds live.
+
+**One coherent per‑order clock.** Every event of an order — placed → paid
+(minutes later) → shipped (+2 h) → delivered (over the promised/actual days) — is
+a deterministic function of `order_id`, so the timestamps line up *across the
+independent producers* and elapsed times are real (Claude can say "declined 2 min
+after the order, delivered 5 days later"). See the shared timeline in
+`templates/dswt_orders.j2`.
 
 **Referential integrity comes from a bounded, closed keyspace** — not a
 coordinator. There are exactly 1000 customers, 100 products (both bulk‑loaded
@@ -220,7 +229,7 @@ You should see the seven `dswt_*` topics.
 
 ---
 
-## The demo (Acts 1–4)
+## The demo (Acts 1–3)
 
 Exact prompts to type into Claude Code. (Tell it to use `cc-managed-mcp`.)
 
@@ -241,40 +250,38 @@ Claude identifies `order_id` and `customer_id`/`product_id`, draws the ERD, and
 (the money moment) notices **`payments.amount` equals `orders.order_total`** and
 **line prices match the product catalog**.
 
-### Act 3 — The data products (Claude suggests; Terraform provisions)
-> *"I want a raw → bronze → silver pipeline on Confluent Cloud Flink. Suggest the
-> Flink SQL to clean and dedupe these into bronze tables, then a silver
-> `medal_silver_order_fulfillment` table that joins orders + payments + shipments +
-> delivery status, enriches with the customer dimension, and **computes lateness**
-> (compare the DELIVERED event time to shipped_ts + promised_days — the delivery
-> stream itself never says whether it was late). Also suggest an at‑risk detector for
-> declined payments and late deliveries."*
+### Act 3 — Live discovery (a data scientist feeling out the streams)
+Three quick questions. Each is a **cross‑stream lookup** the MCP does with plain
+reads — filter one stream, resolve against another, no aggregation. The last one
+hands the work to Flink.
 
-Claude proposes the pipeline live. The **equivalent, pre‑tested SQL is provisioned
-by the main `terraform apply`** as CTAS statements in `terraform/sql/` — so the
-bronze/silver/at‑risk/exec_summary tables are already running on the pool (part
-of Act 0). Show Claude's suggestion side‑by‑side with the live tables in the
-Confluent Cloud **Flink console**.
+**1. The leak**
+> *"Which recent orders had their payment declined but we delivered them
+> anyway?"*
 
-To iterate by hand instead, paste the same files in the console (set the context
-`USE CATALOG \`<env>\`; USE \`<cluster>\`;` first — each file is one CTAS):
-`terraform/sql/{medal_bronze_orders,medal_bronze_payments,medal_bronze_shipments,medal_bronze_delivery_current,medal_silver_order_fulfillment,report_alerts_at_risk,report_exec_summary_hourly}.sql`.
+Claude filters payments for `DECLINED` and checks each against delivery status —
+surfacing the ~1‑in‑8 declined orders that slipped through to `DELIVERED` (the
+rest are `CANCELLED`). A live "we're fulfilling orders whose card failed" moment.
 
-> **MCP visibility of derived tables.** Only the raw `dswt_*` topics are
-> **RTCE‑enabled**, so the context‑engine MCP reads *those*. The derived tables
-> (`medal_silver_order_fulfillment`, …) are **not** RTCE‑enabled — view them in the
-> Flink console/CC UI. If you want Claude to re‑read `medal_silver_order_fulfillment`
-> over MCP for a "close the loop" beat, RTCE‑enable that topic too (add a
-> `confluent_rtce_topic` for it, `depends_on` its CTAS statement).
+**2. Who got hurt**
+> *"Which of our gold or platinum customers had a late delivery or a declined
+> payment recently?"*
 
-### Act 4 — Executive summary (the closer)
-> *"Consume recent data from the order / payment / delivery streams and write a
-> short weekly executive summary: order volume, revenue, % late deliveries, %
-> declined payments, and anything notable by channel or customer segment."*
+Correlates orders → customer (loyalty tier) → delivery / payment. Names the VIPs
+having a bad experience — the shortlist to make things right with.
 
-Claude computes this from the **raw** streams it reads over MCP (all RTCE‑enabled).
-`report_exec_summary_hourly` (provisioned by Terraform) has the exact windowed numbers if
-you'd rather show them in the Flink console.
+**3. Now find it at scale → Flink**
+> *"Sampling only sees the newest slice — write me the Flink SQL that finds every
+> declined‑but‑delivered order, continuously."*
+
+The teaching beat: the MCP is for **discovery**, Flink is for **the real
+numbers**. Claude hands you a `SELECT` that joins payments to delivery and filters
+— exactly the shape of the `report_*` tables `terraform/sql/` already deploys.
+
+> **Why the split?** The managed MCP is read‑only — no `COUNT`/`SUM`/`GROUP BY`/
+> `JOIN`, ~200 rows/call. That's the point: live reads for *exploring and tracing*
+> streams; **aggregation belongs upstream in Flink**. (Bonus closer if you have
+> time: *"Pick one order and tell me its whole story across the streams."*)
 
 ---
 
@@ -295,7 +302,7 @@ you'd rather show them in the Flink console.
 - [ ] `payments.amount == orders.order_total` verified live (Act 2).
 - [ ] `terraform apply` created the 7 CTAS data products; `medal_silver_order_fulfillment`
       is populating in the Flink console (they read `$rowtime`/data as it flows).
-- [ ] Full Acts 1–4 run on the clock; recording captured.
+- [ ] Full Acts 1–3 run on the clock; recording captured.
 
 ## Teardown
 

@@ -4,11 +4,17 @@
     downstream in Flink (join dswt_shipments, compare DELIVERED event_ts against
     shipped_ts + promised_days).
 
-    Emits a 4-step lifecycle per order (CREATED -> IN_TRANSIT -> OUT_FOR_DELIVERY
-    -> DELIVERED) via a cursor in a state pool. Produce with `-n <4*NUM_ORDERS>
-    -k order_id`, so it covers orders 0..NUM_ORDERS-1 (4 events each) and STOPS.
-    Timestamps are deterministic from order_id using the SAME shipped anchor as
-    dswt_shipments, offset by whole hours. ~1 in 6 orders arrive late. -#}
+    Emits a 4-step lifecycle per order via a cursor in a state pool. Produce with
+    `-n <4*NUM_ORDERS> -k order_id`, so it covers orders 0..NUM_ORDERS-1 (4 events
+    each) and STOPS. Timestamps are on the shared per-order timeline (see
+    dswt_orders.j2): shipped_ms = order + 2 h, then whole-hour offsets.
+
+    Delivery is gated on the seeded payment outcome (same "pstat" seed as
+    dswt_payments):
+      CAPTURED            -> CREATED, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED
+      DECLINED (~7 of 8)  -> CREATED, PAYMENT_FLAGGED, ON_HOLD, CANCELLED
+      DECLINED (~1 of 8)  -> DELIVERED anyway (the revenue leak the demo finds)
+    ~1 in 6 delivered orders arrive late. -#}
 {#- step starts at 4 (>= lifecycle length) so the first render advances to the
     first real order (oid 0) instead of emitting a phantom order. -#}
 {%- set _ = init_pool('ds', {'cursor': {'oid': -1, 'step': 4}}) -%}
@@ -18,12 +24,21 @@
   {%- set cur_oid = counter("orders", 0, 1) -%}
   {%- set cur_step = 0 -%}
 {%- endif -%}
-{%- set shipped_ms = 1767225600000 + cur_oid * 300000 -%}
+{%- set order_ms = 1767225600000 + cur_oid * 300000 -%}
+{%- set shipped_ms = order_ms + 7200000 -%}
 {%- set promised = seeded_integer("pd-%d"|format(cur_oid), 2, 7) -%}
-{%- set late = seeded_choice("late-%d"|format(cur_oid), "0|0|0|0|0|1") -%}
-{%- set actual_days = promised + (seeded_integer("lx-%d"|format(cur_oid), 1, 6) if late == "1" else 0) -%}
-{%- set statuses = ["CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"] -%}
-{%- set offsets_h = [0, 24, actual_days * 24 - 6, actual_days * 24] -%}
+{%- set pstatus = seeded_choice("pstat-%d"|format(cur_oid), "CAPTURED|CAPTURED|CAPTURED|CAPTURED|CAPTURED|CAPTURED|CAPTURED|CAPTURED|CAPTURED|DECLINED") -%}
+{%- set leaked = seeded_choice("leak-%d"|format(cur_oid), "0|0|0|0|0|0|0|1") -%}
+{%- set delivered = (pstatus == "CAPTURED") or (leaked == "1") -%}
+{%- if delivered -%}
+  {%- set late = seeded_choice("late-%d"|format(cur_oid), "0|0|0|0|0|1") -%}
+  {%- set actual_days = promised + (seeded_integer("lx-%d"|format(cur_oid), 1, 6) if late == "1" else 0) -%}
+  {%- set statuses = ["CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"] -%}
+  {%- set offsets_h = [0, 24, actual_days * 24 - 6, actual_days * 24] -%}
+{%- else -%}
+  {%- set statuses = ["CREATED", "PAYMENT_FLAGGED", "ON_HOLD", "CANCELLED"] -%}
+  {%- set offsets_h = [0, 1, 2, 3] -%}
+{%- endif -%}
 {%- set _ = update_pool('ds', 'cursor', 'oid', cur_oid) -%}
 {%- set _ = update_pool('ds', 'cursor', 'step', cur_step + 1) -%}
 {

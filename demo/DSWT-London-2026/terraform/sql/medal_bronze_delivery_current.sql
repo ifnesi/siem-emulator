@@ -1,6 +1,7 @@
 -- BRONZE delivery status — collapsed to the CURRENT status per order (CTAS).
 -- Events for an order_id share the key so they arrive ordered; upsert keeps the
--- last (DELIVERED once complete, with event_ts = the delivery time).
+-- last — the terminal status is DELIVERED (fulfilled) or CANCELLED (declined
+-- payment held), with event_ts = that terminal event's time.
 CREATE TABLE medal_bronze_delivery_current (
   PRIMARY KEY (order_id) NOT ENFORCED
 ) DISTRIBUTED BY (order_id) INTO 6 BUCKETS AS

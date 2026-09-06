@@ -30,8 +30,8 @@
     {
       "name": "order_ts",
       "type": {
-        "type": "string",
-        "logicalType": "iso-8601-timestamp"
+        "type": "long",
+        "logicalType": "timestamp-millis"
       }
     }
   ]

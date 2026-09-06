@@ -6,6 +6,7 @@ SELECT
   order_id,
   customer_id,
   CASE
+    WHEN shipped_despite_decline     THEN 'SHIPPED_DESPITE_DECLINE'
     WHEN payment_status = 'DECLINED' THEN 'PAYMENT_DECLINED'
     WHEN NOT amount_matches          THEN 'AMOUNT_MISMATCH'
     WHEN is_late                     THEN 'LATE_DELIVERY'
@@ -15,6 +16,7 @@ SELECT
   delivery_status,
   is_late,
   amount_matches,
+  shipped_despite_decline,
   order_total
 FROM medal_silver_order_fulfillment
 WHERE payment_status = 'DECLINED'

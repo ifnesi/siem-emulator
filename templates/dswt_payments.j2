@@ -3,9 +3,13 @@
     and stops. `amount` recomputes the SAME per-line item sum as
     dswt_orders.order_total (see the shared item model in dswt_orders.j2), so
     amount == order_total == sum of the order's line_totals — exactly. ~1 in 10
-    DECLINED feeds the anomaly / fraud detector. -#}
+    DECLINED. authorized_ts is on the shared per-order timeline (see
+    dswt_orders.j2): the order time + a seeded 1..15 min, so the payment lands
+    just after the order on one coherent clock. -#}
 {%- set oid = counter("orders", 0, 1) -%}
 {%- set order_id = "ORD-%08d"|format(oid) -%}
+{%- set order_ms = 1767225600000 + oid * 300000 -%}
+{%- set authorized_ms = order_ms + seeded_integer("paydelay-%d"|format(oid), 60, 900) * 1000 -%}
 {%- set item_count = seeded_integer("ic-%d"|format(oid), 2, 5) -%}
 {%- set ns = namespace(total=0.0) -%}
 {%- for L in range(1, item_count + 1) -%}
@@ -21,5 +25,5 @@
   "amount":         {{ ns.total | round(2) }},
   "currency":       "GBP",
   "status":         {{ status | tojson }},
-  "authorized_ts":  {{ now() }}
+  "authorized_ts":  {{ epoch_millis(authorized_ms) }}
 }

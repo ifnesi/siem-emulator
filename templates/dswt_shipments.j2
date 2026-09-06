@@ -2,12 +2,13 @@
     Produce with `-n <NUM_ORDERS> -k order_id`: walks the same order_id sequence
     0..NUM_ORDERS-1 and stops. The "promise": promised_days (SLA) + ship time;
     whether it arrived on time is derived in Flink by joining dswt_delivery_status.
-    shipped_ts is deterministic from order_id (2026-01-01 anchor + oid*5min), so
-    dswt_delivery_status reproduces the SAME anchor and the timestamps line up
-    for the duration math. -#}
+    shipped_ts is on the shared per-order timeline (see dswt_orders.j2): the order
+    time + 2 h (label created). dswt_delivery_status recomputes the SAME value, so
+    the delivery events line up for the duration math. -#}
 {%- set oid = counter("orders", 0, 1) -%}
 {%- set order_id = "ORD-%08d"|format(oid) -%}
-{%- set shipped_ms = 1767225600000 + oid * 300000 -%}
+{%- set order_ms = 1767225600000 + oid * 300000 -%}
+{%- set shipped_ms = order_ms + 7200000 -%}
 {
   "order_id":        {{ order_id | tojson }},
   "carrier":         {{ seeded_choice("car-%d"|format(oid), data.carriers) | tojson }},
