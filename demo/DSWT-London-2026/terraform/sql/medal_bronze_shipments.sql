@@ -1,5 +1,5 @@
 -- BRONZE shipments — the promise (CTAS). promised_days is Avro long -> CAST INT.
-CREATE TABLE bronze_shipments (
+CREATE TABLE medal_bronze_shipments (
   PRIMARY KEY (order_id) NOT ENFORCED
 ) DISTRIBUTED BY (order_id) INTO 6 BUCKETS AS
 SELECT

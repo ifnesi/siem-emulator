@@ -1,11 +1,9 @@
 # =============================================================================
 # DSWT London 2026 infrastructure on Confluent Cloud.
 #   organization + environment + Kafka cluster + Schema Registry + Flink pool
-#   + 7 raw topics + Avro schemas + RTCE (context-engine) + SAs / RBAC / keys.
-#
-# Deliberately NOT here (this is the live demo part):
-#   * confluent_flink_statement — the presenter applies Claude's suggested Flink
-#     SQL (bronze/silver/anomalies/exec_summary) on the pool; see ../flink/.
+#   + 7 raw topics + Avro schemas + RTCE (context-engine, raw topics only)
+#   + the Flink data products (CTAS statements, sql/) + SAs / RBAC / keys.
+# One `terraform apply` provisions everything.
 # =============================================================================
 
 data "confluent_organization" "cc_org" {}
@@ -313,6 +311,157 @@ resource "confluent_rtce_topic" "raw" {
     id = confluent_kafka_cluster.cc_kafka_cluster.id
   }
 
+  depends_on = [confluent_schema.raw]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+# ── Flink data products (CTAS) — created as part of this `terraform apply` ───
+# bronze → silver → at-risk → exec summary, each one CTAS (CREATE TABLE AS
+# SELECT) in terraform/sql/. NOTE: RTCE is intentionally NOT enabled on these
+# derived tables — only the raw dswt_* topics (above) get RTCE.
+locals {
+  flink_props = {
+    "sql.current-catalog"  = confluent_environment.cc_demo_env.id
+    "sql.current-database" = confluent_kafka_cluster.cc_kafka_cluster.id
+  }
+  flink_common = {
+    org_id        = data.confluent_organization.cc_org.id
+    env_id        = confluent_environment.cc_demo_env.id
+    pool_id       = confluent_flink_compute_pool.flink_compute_pool.id
+    principal_id  = confluent_service_account.app_manager.id
+    rest_endpoint = data.confluent_flink_region.flink_region.rest_endpoint
+    key           = confluent_api_key.flink_api_key.id
+    secret        = confluent_api_key.flink_api_key.secret
+  }
+}
+
+resource "confluent_flink_statement" "medal_bronze_orders" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/medal_bronze_orders.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
+  depends_on = [confluent_schema.raw]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+resource "confluent_flink_statement" "medal_bronze_payments" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/medal_bronze_payments.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
+  depends_on = [confluent_schema.raw]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+resource "confluent_flink_statement" "medal_bronze_shipments" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/medal_bronze_shipments.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
+  depends_on = [confluent_schema.raw]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+resource "confluent_flink_statement" "medal_bronze_delivery_current" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/medal_bronze_delivery_current.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
+  depends_on = [confluent_schema.raw]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+resource "confluent_flink_statement" "medal_silver_order_fulfillment" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/medal_silver_order_fulfillment.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
+  depends_on = [
+    confluent_flink_statement.medal_bronze_orders,
+    confluent_flink_statement.medal_bronze_payments,
+    confluent_flink_statement.medal_bronze_shipments,
+    confluent_flink_statement.medal_bronze_delivery_current,
+  ]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+resource "confluent_flink_statement" "report_alerts_at_risk" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/report_alerts_at_risk.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
+  depends_on = [confluent_flink_statement.medal_silver_order_fulfillment]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+resource "confluent_flink_statement" "report_exec_summary_hourly" {
+  organization { id = local.flink_common.org_id }
+  environment { id = local.flink_common.env_id }
+  compute_pool { id = local.flink_common.pool_id }
+  principal { id = local.flink_common.principal_id }
+  statement     = file("${path.module}/sql/report_exec_summary_hourly.sql")
+  properties    = local.flink_props
+  rest_endpoint = local.flink_common.rest_endpoint
+  credentials {
+    key    = local.flink_common.key
+    secret = local.flink_common.secret
+  }
   depends_on = [confluent_schema.raw]
   lifecycle {
     prevent_destroy = false

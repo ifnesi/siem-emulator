@@ -2,7 +2,7 @@
 -- facts + the customer dimension and COMPUTES lateness from the timestamps (the
 -- delivery stream never says whether it was late). Needs the four bronze_* + the
 -- raw dswt_customers to exist first.
-CREATE TABLE silver_order_fulfillment (
+CREATE TABLE medal_silver_order_fulfillment (
   PRIMARY KEY (order_id) NOT ENFORCED
 ) DISTRIBUTED BY (order_id) INTO 6 BUCKETS AS
 SELECT
@@ -25,8 +25,8 @@ SELECT
   CASE WHEN d.status = 'DELIVERED'
        THEN TIMESTAMPDIFF(DAY, s.shipped_ts, d.event_ts) > s.promised_days
        END                                    AS is_late
-FROM bronze_orders o
-LEFT JOIN bronze_payments         p ON o.order_id = p.order_id
-LEFT JOIN bronze_shipments        s ON o.order_id = s.order_id
-LEFT JOIN bronze_delivery_current d ON o.order_id = d.order_id
+FROM medal_bronze_orders o
+LEFT JOIN medal_bronze_payments         p ON o.order_id = p.order_id
+LEFT JOIN medal_bronze_shipments        s ON o.order_id = s.order_id
+LEFT JOIN medal_bronze_delivery_current d ON o.order_id = d.order_id
 LEFT JOIN dswt_customers          c ON o.customer_id = c.customer_id;

@@ -1,6 +1,6 @@
 -- BRONZE orders — cleaned/deduped (CTAS = one statement). Catalog/database come
 -- from the statement's sql.current-catalog/database properties (set in main.tf).
-CREATE TABLE bronze_orders (
+CREATE TABLE medal_bronze_orders (
   PRIMARY KEY (order_id) NOT ENFORCED
 ) DISTRIBUTED BY (order_id) INTO 6 BUCKETS AS
 SELECT

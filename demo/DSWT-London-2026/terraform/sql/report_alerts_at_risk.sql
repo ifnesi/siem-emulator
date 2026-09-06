@@ -1,5 +1,5 @@
--- ANOMALY / at-risk detector (CTAS). Needs silver_order_fulfillment first.
-CREATE TABLE alerts_at_risk (
+-- ANOMALY / at-risk detector (CTAS). Needs medal_silver_order_fulfillment first.
+CREATE TABLE report_alerts_at_risk (
   PRIMARY KEY (order_id) NOT ENFORCED
 ) DISTRIBUTED BY (order_id) INTO 6 BUCKETS AS
 SELECT
@@ -16,7 +16,7 @@ SELECT
   is_late,
   amount_matches,
   order_total
-FROM silver_order_fulfillment
+FROM medal_silver_order_fulfillment
 WHERE payment_status = 'DECLINED'
    OR is_late = TRUE
    OR amount_matches = FALSE;

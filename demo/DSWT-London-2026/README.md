@@ -24,7 +24,7 @@ flowchart LR
     T["7 raw topics\ncustomers · products · orders · order_items\nshipments · delivery_status · payments"]
     MCP["Managed MCP server\n(read-only)"]
     FLINK["Flink compute pool"]
-    SILVER["silver_order_fulfillment\n+ alerts_at_risk\n(created live by Flink SQL)"]
+    SILVER["medal_silver_order_fulfillment\n+ report_alerts_at_risk\n(Terraform CTAS)"]
   end
 
   DG -- "produce (Avro)" --> T
@@ -35,20 +35,20 @@ flowchart LR
   MCP --- SILVER
 ```
 
-- **Terraform** provisions the environment, cluster, Flink pool, the 7 raw
-  topics, their **Avro schemas**, **RTCE** (Real‑Time Context Engine) per topic,
-  service accounts, RBAC and API keys.
+- **Terraform** provisions everything in one apply: the environment, cluster,
+  Flink pool, the 7 raw topics, their **Avro schemas**, **RTCE** (Real‑Time
+  Context Engine) on the raw topics, the **Flink data products** (CTAS in
+  `terraform/sql/`), and the service accounts, RBAC and API keys.
 - **Datagen (Docker)** pumps the seven related e‑commerce streams into Confluent
   Cloud, pinning the same `schemas/dswt_*.avsc` Terraform registered (`--schema`).
-- **Claude Code** connects to the **managed MCP server** (read‑only) to explore,
-  and **suggests** the Flink SQL. The presenter applies it on the Flink pool.
+- **Claude Code** connects to the **managed MCP server** (read‑only) to explore
+  and **suggests** the Flink SQL — the same SQL Terraform provisions.
 
 The managed MCP server is read‑only by design (`list_kafka_topics`,
 `describe_kafka_topic`, `consume_kafka_messages`, `list_schema_subjects`,
-`read_schema_subject`) — so creating topics / running Flink is the presenter's
-job, driven by what Claude proposes. **RTCE is what makes the topics visible to
-the context‑engine MCP endpoint**, which is why Terraform enables it per topic
-(each topic needs a registered schema first).
+`read_schema_subject`). **RTCE is what makes topics visible to the context‑engine
+MCP endpoint**, which is why Terraform enables it on the raw topics (each needs a
+registered schema first). The derived Flink tables are *not* RTCE‑enabled.
 
 ---
 
@@ -241,83 +241,47 @@ Claude identifies `order_id` and `customer_id`/`product_id`, draws the ERD, and
 (the money moment) notices **`payments.amount` equals `orders.order_total`** and
 **line prices match the product catalog**.
 
-### Act 3 — Build the data products (Claude suggests → presenter applies)
+### Act 3 — The data products (Claude suggests; Terraform provisions)
 > *"I want a raw → bronze → silver pipeline on Confluent Cloud Flink. Suggest the
 > Flink SQL to clean and dedupe these into bronze tables, then a silver
-> `silver_order_fulfillment` table that joins orders + payments + shipments +
+> `medal_silver_order_fulfillment` table that joins orders + payments + shipments +
 > delivery status, enriches with the customer dimension, and **computes lateness**
 > (compare the DELIVERED event time to shipped_ts + promised_days — the delivery
 > stream itself never says whether it was late). Also suggest an at‑risk detector for
 > declined payments and late deliveries."*
 
-There are two ways to apply the data products — pick one.
+Claude proposes the pipeline live. The **equivalent, pre‑tested SQL is provisioned
+by the main `terraform apply`** as CTAS statements in `terraform/sql/` — so the
+bronze/silver/at‑risk/exec_summary tables are already running on the pool (part
+of Act 0). Show Claude's suggestion side‑by‑side with the live tables in the
+Confluent Cloud **Flink console**.
 
-#### Option A — paste Claude's SQL in the console
-Pre‑tested fallbacks live in `flink/*.sql`:
+To iterate by hand instead, paste the same files in the console (set the context
+`USE CATALOG \`<env>\`; USE \`<cluster>\`;` first — each file is one CTAS):
+`terraform/sql/{medal_bronze_orders,medal_bronze_payments,medal_bronze_shipments,medal_bronze_delivery_current,medal_silver_order_fulfillment,report_alerts_at_risk,report_exec_summary_hourly}.sql`.
 
-```bash
-# Confluent Cloud console → Flink → your pool, set the context first:
-#   USE CATALOG `<env display name>`;  USE `<cluster display name>`;
-# Then run the files in order: bronze.sql → silver.sql → anomalies.sql
-```
-Run each statement **separately** — every `CREATE TABLE` first, then each
-`INSERT INTO` (each is a *continuous* streaming job that never "finishes").
-
-#### Option B — Terraform, one statement at a time (`terraform-flink/`)
-Each data product is a single **CTAS** (`CREATE TABLE … AS SELECT`) managed as a
-`confluent_flink_statement`. This module is **separate** from the infra module,
-so it never runs during `terraform apply` of the infra — you apply each product
-on its own with `-target`, in dependency order:
-
-```bash
-cd demo/DSWT-London-2026/terraform-flink
-terraform init          # reads the infra module's state for ids/keys
-
-# bronze (any order) → silver → alerts. exec_summary is independent.
-terraform apply -target=confluent_flink_statement.bronze_orders -auto-approve
-terraform apply -target=confluent_flink_statement.bronze_payments -auto-approve
-terraform apply -target=confluent_flink_statement.bronze_shipments -auto-approve
-terraform apply -target=confluent_flink_statement.bronze_delivery_current -auto-approve
-terraform apply -target=confluent_flink_statement.silver -auto-approve
-terraform apply -target=confluent_flink_statement.alerts -auto-approve
-terraform apply -target=confluent_flink_statement.exec_summary -auto-approve
-```
-
-Tear them down one by one (reverse order — dependents first):
-
-```bash
-terraform destroy -target=confluent_flink_statement.exec_summary -auto-approve
-terraform destroy -target=confluent_flink_statement.alerts -auto-approve
-terraform destroy -target=confluent_flink_statement.silver -auto-approve
-terraform destroy -target=confluent_flink_statement.bronze_delivery_current -auto-approve
-terraform destroy -target=confluent_flink_statement.bronze_shipments -auto-approve
-terraform destroy -target=confluent_flink_statement.bronze_payments -auto-approve
-terraform destroy -target=confluent_flink_statement.bronze_orders -auto-approve
-# (or `terraform destroy` to drop all the statements at once)
-```
-
-Requires the infra module to have been applied first (its outputs feed this
-module via `terraform_remote_state`). Each `apply` starts one continuous Flink
-job that creates its backing topic; each `destroy` stops that job.
-
-**Close the loop** back in Claude:
-> *"Using cc-managed-mcp, consume a few messages from `silver_order_fulfillment`
-> and confirm the enrichment worked."*
-
-The read‑only MCP now sees the brand‑new product the presenter just created.
+> **MCP visibility of derived tables.** Only the raw `dswt_*` topics are
+> **RTCE‑enabled**, so the context‑engine MCP reads *those*. The derived tables
+> (`medal_silver_order_fulfillment`, …) are **not** RTCE‑enabled — view them in the
+> Flink console/CC UI. If you want Claude to re‑read `medal_silver_order_fulfillment`
+> over MCP for a "close the loop" beat, RTCE‑enable that topic too (add a
+> `confluent_rtce_topic` for it, `depends_on` its CTAS statement).
 
 ### Act 4 — Executive summary (the closer)
-> *"Consume recent data from `silver_order_fulfillment` and write a short weekly
-> executive summary: order volume, revenue, % late deliveries, % declined
-> payments, and anything notable by channel or customer segment."*
+> *"Consume recent data from the order / payment / delivery streams and write a
+> short weekly executive summary: order volume, revenue, % late deliveries, %
+> declined payments, and anything notable by channel or customer segment."*
 
-Optionally apply `flink/exec_summary.sql` first so the headline numbers are exact.
+Claude computes this from the **raw** streams it reads over MCP (all RTCE‑enabled).
+`report_exec_summary_hourly` (provisioned by Terraform) has the exact windowed numbers if
+you'd rather show them in the Flink console.
 
 ---
 
 ## Fallbacks (live‑with‑a‑net)
 
-- **Pre‑tested SQL** in `flink/` — apply directly if a live suggestion needs a fix.
+- **Pre‑tested SQL** in `terraform/sql/` — already applied by `terraform apply`;
+  paste a file in the console if a live suggestion needs a fix.
 - **Infra already applied** — never run `terraform apply` on stage.
 - **Screen recording** of a full clean run, in case the venue network fails.
 - **Safe mode:** the repo's local OSS‑MCP demo (`demo/AI-demo/`) runs entirely
@@ -329,8 +293,8 @@ Optionally apply `flink/exec_summary.sql` first so the headline numbers are exac
 - [ ] `docker compose up` — all seven topics have data in the CC console.
 - [ ] `DSWT_CC_MCP_AUTH` exported; Claude lists the seven topics via `cc-managed-mcp`.
 - [ ] `payments.amount == orders.order_total` verified live (Act 2).
-- [ ] `bronze → silver → anomalies` apply cleanly on the pool.
-- [ ] MCP re‑reads `silver_order_fulfillment` (Act 3 loop).
+- [ ] `terraform apply` created the 7 CTAS data products; `medal_silver_order_fulfillment`
+      is populating in the Flink console (they read `$rowtime`/data as it flows).
 - [ ] Full Acts 1–4 run on the clock; recording captured.
 
 ## Teardown
@@ -379,14 +343,11 @@ demo/DSWT-London-2026/
 ├── docker/
 │   ├── Dockerfile            # datagen image (build context = repo root)
 │   └── entrypoint.sh         # bulk-loads dims, runs the 5 fact streams
-├── terraform/                # env · cluster · Flink pool · topics · schemas · RTCE · RBAC · keys
-│   ├── providers.tf  vars.tf  main.tf  outputs.tf  terraform.tfvars.example
-├── terraform-flink/          # data products as CTAS confluent_flink_statement(s),
-│   ├── providers.tf  main.tf  #   applied one-by-one via -target (separate state)
-│   └── sql/                   #   bronze_*.sql · silver_order_fulfillment.sql ·
-│                              #   alerts_at_risk.sql · exec_summary_hourly.sql
-└── flink/                    # the same logic as multi-statement SQL for console paste
-    ├── bronze.sql  silver.sql  anomalies.sql  exec_summary.sql
+└── terraform/                # ONE apply provisions everything:
+    ├── providers.tf  vars.tf  main.tf  outputs.tf  terraform.tfvars.example
+    └── sql/                   # data products as CTAS: medal_bronze_orders/payments/
+                               #   shipments/delivery_current, silver_order_
+                               #   fulfillment, report_alerts_at_risk, report_exec_summary_hourly
 ```
 
 Datagen internals live at the repo root: `templates/dswt_*.j2`,

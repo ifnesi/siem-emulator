@@ -1,7 +1,7 @@
 -- EXECUTIVE SUMMARY — hourly revenue/volume/AOV by channel (CTAS). Reads the
 -- raw dswt_orders directly (uses the Kafka record time $rowtime as event time),
 -- so it has no bronze dependency. Windowed aggregate = append, so no PRIMARY KEY.
-CREATE TABLE exec_summary_hourly AS
+CREATE TABLE report_exec_summary_hourly AS
 SELECT
   window_start,
   window_end,
