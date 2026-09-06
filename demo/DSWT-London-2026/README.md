@@ -150,7 +150,7 @@ export CONFLUENT_CLOUD_API_KEY="..."              # provider auth (env, not on d
 export CONFLUENT_CLOUD_API_SECRET="..."
 terraform init
 terraform plan
-terraform apply
+terraform apply -auto-approve
 ```
 
 Terraform writes everything the demo needs (all git‑ignored):
@@ -274,25 +274,25 @@ cd demo/DSWT-London-2026/terraform-flink
 terraform init          # reads the infra module's state for ids/keys
 
 # bronze (any order) → silver → alerts. exec_summary is independent.
-terraform apply -target=confluent_flink_statement.bronze_orders
-terraform apply -target=confluent_flink_statement.bronze_payments
-terraform apply -target=confluent_flink_statement.bronze_shipments
-terraform apply -target=confluent_flink_statement.bronze_delivery_current
-terraform apply -target=confluent_flink_statement.silver
-terraform apply -target=confluent_flink_statement.alerts
-terraform apply -target=confluent_flink_statement.exec_summary
+terraform apply -target=confluent_flink_statement.bronze_orders -auto-approve
+terraform apply -target=confluent_flink_statement.bronze_payments -auto-approve
+terraform apply -target=confluent_flink_statement.bronze_shipments -auto-approve
+terraform apply -target=confluent_flink_statement.bronze_delivery_current -auto-approve
+terraform apply -target=confluent_flink_statement.silver -auto-approve
+terraform apply -target=confluent_flink_statement.alerts -auto-approve
+terraform apply -target=confluent_flink_statement.exec_summary -auto-approve
 ```
 
 Tear them down one by one (reverse order — dependents first):
 
 ```bash
-terraform destroy -target=confluent_flink_statement.exec_summary
-terraform destroy -target=confluent_flink_statement.alerts
-terraform destroy -target=confluent_flink_statement.silver
-terraform destroy -target=confluent_flink_statement.bronze_delivery_current
-terraform destroy -target=confluent_flink_statement.bronze_shipments
-terraform destroy -target=confluent_flink_statement.bronze_payments
-terraform destroy -target=confluent_flink_statement.bronze_orders
+terraform destroy -target=confluent_flink_statement.exec_summary -auto-approve
+terraform destroy -target=confluent_flink_statement.alerts -auto-approve
+terraform destroy -target=confluent_flink_statement.silver -auto-approve
+terraform destroy -target=confluent_flink_statement.bronze_delivery_current -auto-approve
+terraform destroy -target=confluent_flink_statement.bronze_shipments -auto-approve
+terraform destroy -target=confluent_flink_statement.bronze_payments -auto-approve
+terraform destroy -target=confluent_flink_statement.bronze_orders -auto-approve
 # (or `terraform destroy` to drop all the statements at once)
 ```
 
@@ -337,7 +337,7 @@ Optionally apply `flink/exec_summary.sql` first so the headline numbers are exac
 
 ```bash
 cd demo/DSWT-London-2026 && docker compose down
-cd terraform && terraform destroy
+cd terraform && terraform destroy -auto-approve
 ```
 
 (If `destroy` says "no changes" but resources still exist, run `terraform init`
